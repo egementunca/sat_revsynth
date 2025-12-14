@@ -118,19 +118,19 @@ class ECA57Synthesizer:
                 # ctrl1_val = OR over w: (c1_w_g AND d_w_g_i)
                 c1_products = []
                 for w in range(width):
-                    prod_var = cnf.reserve_name(f"c1v_{w}_{g}_{i}", True)
+                    prod_var = cnf.reserve_name(f"C1v_{w}_{g}_{i}", True)
                     cnf.equals_and(prod_var, [ctrl1s[g][w], data[i][g][w]])
                     c1_products.append(prod_var)
-                ctrl1_val = cnf.reserve_name(f"c1val_{g}_{i}", True)
+                ctrl1_val = cnf.reserve_name(f"C1val_{g}_{i}", True)
                 cnf.equals_or(ctrl1_val, c1_products)
                 
                 # Compute ctrl2_val: which wire provides ctrl2 value  
                 c2_products = []
                 for w in range(width):
-                    prod_var = cnf.reserve_name(f"c2v_{w}_{g}_{i}", True)
+                    prod_var = cnf.reserve_name(f"C2v_{w}_{g}_{i}", True)
                     cnf.equals_and(prod_var, [ctrl2s[g][w], data[i][g][w]])
                     c2_products.append(prod_var)
-                ctrl2_val = cnf.reserve_name(f"c2val_{g}_{i}", True)
+                ctrl2_val = cnf.reserve_name(f"C2val_{g}_{i}", True)
                 cnf.equals_or(ctrl2_val, c2_products)
                 
                 # or_cond = ctrl1_val OR (NOT ctrl2_val)
@@ -141,7 +141,7 @@ class ECA57Synthesizer:
                 # Apply gate to each wire
                 for w in range(width):
                     # switch_bit = or_cond AND (w is target)
-                    switch_bit = cnf.reserve_name(f"sw_{w}_{g}_{i}", True)
+                    switch_bit = cnf.reserve_name(f"Sw_{w}_{g}_{i}", True)
                     cnf.equals_and(switch_bit, [or_cond[i][g], targets[g][w]])
                     
                     # data_out = data_in XOR switch_bit

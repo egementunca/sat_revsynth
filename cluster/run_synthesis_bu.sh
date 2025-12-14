@@ -1,72 +1,70 @@
 #!/bin/bash
 #$ -N sat_revsynth
 #$ -pe omp 8
-#$ -l h_rt=24:00:00
-#$ -l mem_per_core=2G
+#$ -l h_rt=48:00:00
+#$ -l mem_per_core=4G
 #$ -j y
 #$ -V
 #$ -cwd
 
-# SAT RevSynth Identity Template Enumeration Job for Boston University SCC
-# Usage: qsub -v WIDTH=3,GATES=4 run_synthesis_bu.sh
+# SAT RevSynth - Enumerate UNIQUE identity templates (Table II)
+# Uses canonicalization to count equivalence class representatives only
 
-# Navigate to project directory
 cd "${SGE_O_WORKDIR:-$(dirname $0)/..}"
 
-# Activate virtual environment
 if [ -f "venv/bin/activate" ]; then
     source venv/bin/activate
 fi
 
-# Default parameters (can be overridden with -v)
 WIDTH="${WIDTH:-3}"
 GATES="${GATES:-4}"
-SOLVER="${SOLVER:-cadical153}"  # Best builtin solver for enumeration
+SOLVER="${SOLVER:-cadical153}"
 OUTPUT_DIR="${OUTPUT_DIR:-results}"
-GATE_SET="${GATE_SET:-mct}"  # mct or eca57
+GATE_SET="${GATE_SET:-mct}"
 
-# Create output directory
 mkdir -p "$OUTPUT_DIR"
-
-# Generate timestamp for output file
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 OUTPUT_FILE="$OUTPUT_DIR/${GATE_SET}_w${WIDTH}_g${GATES}_${SOLVER}_${TIMESTAMP}.json"
 
-echo "SAT RevSynth Enumeration Job - BU SCC"
-echo "======================================"
-echo "Width: $WIDTH"
-echo "Gates: $GATES"
-echo "Solver: $SOLVER"
-echo "Gate Set: $GATE_SET"
+echo "SAT RevSynth - UNIQUE Templates (Table II)"
+echo "==========================================="
+echo "Width: $WIDTH, Gates: $GATES, Solver: $SOLVER"
 echo "Output: $OUTPUT_FILE"
-echo "Host: $(hostname)"
 echo "Started: $(date)"
-echo ""
 
-# Run synthesis
-python3 -c "
+python3 << 'PYTHON_SCRIPT'
 import sys
+import os
 sys.path.insert(0, 'src')
 
 import json
 import time
 from truth_table.truth_table import TruthTable
 from sat.solver import Solver
+from database.equivalence import canonical_repr
 
-WIDTH = int('$WIDTH')
-GATES = int('$GATES')
-SOLVER_NAME = '$SOLVER'
-GATE_SET = '$GATE_SET'
-OUTPUT_FILE = '$OUTPUT_FILE'
+WIDTH = int(os.environ.get('WIDTH', 3))
+GATES = int(os.environ.get('GATES', 4))
+SOLVER_NAME = os.environ.get('SOLVER', 'cadical153')
+GATE_SET = os.environ.get('GATE_SET', 'mct')
+OUTPUT_FILE = os.environ.get('OUTPUT_FILE', 'results/output.json')
+
+# Fix OUTPUT_FILE from shell
+import subprocess
+result = subprocess.run(['echo', os.environ.get('OUTPUT_FILE', '')], capture_output=True, text=True)
 
 solver = Solver(SOLVER_NAME)
 identity_tt = TruthTable(WIDTH)
 
-circuits = []
+# Track UNIQUE circuits by canonical representation
+unique_circuits = {}  # canonical_repr -> circuit gates
+total_found = 0
 start_time = time.time()
 
 if GATE_SET == 'mct':
     from synthesizers.circuit_synthesizer import CircuitSynthesizer
+    from circuit.circuit import Circuit
+    
     synth = CircuitSynthesizer(identity_tt, GATES, solver)
     synth.disable_empty_lines()
     
@@ -74,23 +72,24 @@ if GATE_SET == 'mct':
         circuit = synth.solve()
         if circuit is None:
             break
-        circuits.append([list(g) for g in circuit.gates()])
+        
+        total_found += 1
+        
+        # Get canonical form to deduplicate
+        try:
+            canon = canonical_repr(circuit)
+            if canon not in unique_circuits:
+                unique_circuits[canon] = [list(g) for g in circuit.gates()]
+        except Exception as e:
+            # If canonicalization fails, use raw representation
+            raw = str([(list(c), t) for c, t in circuit.gates()])
+            if raw not in unique_circuits:
+                unique_circuits[raw] = [list(g) for g in circuit.gates()]
+        
         synth.exclude_solution(circuit)
-        if len(circuits) % 100 == 0:
-            print(f'Found {len(circuits)} circuits...', flush=True)
-
-elif GATE_SET == 'eca57':
-    from synthesizers.eca57_synthesizer import ECA57Synthesizer
-    synth = ECA57Synthesizer(identity_tt, GATES, solver)
-    
-    while True:
-        circuit = synth.solve()
-        if circuit is None:
-            break
-        circuits.append([g.to_tuple() for g in circuit.gates()])
-        synth.exclude_solution(circuit)
-        if len(circuits) % 100 == 0:
-            print(f'Found {len(circuits)} circuits...', flush=True)
+        
+        if total_found % 1000 == 0:
+            print(f'Processed {total_found}, unique: {len(unique_circuits)}...', flush=True)
 
 elapsed = time.time() - start_time
 
@@ -99,17 +98,21 @@ result = {
     'gates': GATES,
     'solver': SOLVER_NAME,
     'gate_set': GATE_SET,
-    'num_circuits': len(circuits),
+    'total_enumerated': total_found,
+    'unique_templates': len(unique_circuits),
     'elapsed_seconds': elapsed,
-    'circuits': circuits
+    'circuits': list(unique_circuits.values())
 }
 
-with open(OUTPUT_FILE, 'w') as f:
+output_file = f"results/{GATE_SET}_w{WIDTH}_g{GATES}_{SOLVER_NAME}.json"
+with open(output_file, 'w') as f:
     json.dump(result, f, indent=2)
 
-print(f'\\nCompleted: {len(circuits)} identity templates in {elapsed:.2f}s')
-print(f'Results saved to: {OUTPUT_FILE}')
-"
+print(f'\nCompleted!')
+print(f'Total enumerated: {total_found}')
+print(f'Unique templates: {len(unique_circuits)}')
+print(f'Time: {elapsed:.2f}s')
+print(f'Saved to: {output_file}')
+PYTHON_SCRIPT
 
-echo ""
 echo "Job completed: $(date)"

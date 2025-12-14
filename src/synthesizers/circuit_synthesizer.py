@@ -146,6 +146,7 @@ class CircuitSynthesizer:
                 exclusion_list += self._gate_exclusion_list(layer, gate)
             circuit._exclusion_list = exclusion_list
         self._cnf.exclude_by_values(circuit._exclusion_list)
+        self._circuit = None
         return self
 
     def disable_empty_lines(self) -> "CircuitSynthesizer":

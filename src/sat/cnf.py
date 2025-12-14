@@ -278,7 +278,7 @@ class CNF():
 
     def exclude_by_values(self, literals: list[int]) -> "CNF":
         clause = [-lit for lit in literals]
-        self._cnf.clauses.append(clause)
+        self._cnf.append(clause)
         return self
 
     def make_dict_model(self, solution: Solution) -> dict:

@@ -1,0 +1,115 @@
+#!/bin/bash
+#$ -N sat_revsynth
+#$ -pe omp 8
+#$ -l h_rt=24:00:00
+#$ -l mem_per_core=2G
+#$ -j y
+#$ -V
+#$ -cwd
+
+# SAT RevSynth Identity Template Enumeration Job for Boston University SCC
+# Usage: qsub -v WIDTH=3,GATES=4 run_synthesis_bu.sh
+
+# Navigate to project directory
+cd "${SGE_O_WORKDIR:-$(dirname $0)/..}"
+
+# Activate virtual environment
+if [ -f "venv/bin/activate" ]; then
+    source venv/bin/activate
+fi
+
+# Default parameters (can be overridden with -v)
+WIDTH="${WIDTH:-3}"
+GATES="${GATES:-4}"
+SOLVER="${SOLVER:-cadical153}"  # Best builtin solver for enumeration
+OUTPUT_DIR="${OUTPUT_DIR:-results}"
+GATE_SET="${GATE_SET:-mct}"  # mct or eca57
+
+# Create output directory
+mkdir -p "$OUTPUT_DIR"
+
+# Generate timestamp for output file
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+OUTPUT_FILE="$OUTPUT_DIR/${GATE_SET}_w${WIDTH}_g${GATES}_${SOLVER}_${TIMESTAMP}.json"
+
+echo "SAT RevSynth Enumeration Job - BU SCC"
+echo "======================================"
+echo "Width: $WIDTH"
+echo "Gates: $GATES"
+echo "Solver: $SOLVER"
+echo "Gate Set: $GATE_SET"
+echo "Output: $OUTPUT_FILE"
+echo "Host: $(hostname)"
+echo "Started: $(date)"
+echo ""
+
+# Run synthesis
+python3 -c "
+import sys
+sys.path.insert(0, 'src')
+
+import json
+import time
+from truth_table.truth_table import TruthTable
+from sat.solver import Solver
+
+WIDTH = int('$WIDTH')
+GATES = int('$GATES')
+SOLVER_NAME = '$SOLVER'
+GATE_SET = '$GATE_SET'
+OUTPUT_FILE = '$OUTPUT_FILE'
+
+solver = Solver(SOLVER_NAME)
+identity_tt = TruthTable(WIDTH)
+
+circuits = []
+start_time = time.time()
+
+if GATE_SET == 'mct':
+    from synthesizers.circuit_synthesizer import CircuitSynthesizer
+    synth = CircuitSynthesizer(identity_tt, GATES, solver)
+    synth.disable_empty_lines()
+    
+    while True:
+        circuit = synth.solve()
+        if circuit is None:
+            break
+        circuits.append([list(g) for g in circuit.gates()])
+        synth.exclude_solution(circuit)
+        if len(circuits) % 100 == 0:
+            print(f'Found {len(circuits)} circuits...', flush=True)
+
+elif GATE_SET == 'eca57':
+    from synthesizers.eca57_synthesizer import ECA57Synthesizer
+    synth = ECA57Synthesizer(identity_tt, GATES, solver)
+    
+    while True:
+        circuit = synth.solve()
+        if circuit is None:
+            break
+        circuits.append([g.to_tuple() for g in circuit.gates()])
+        synth.exclude_solution(circuit)
+        if len(circuits) % 100 == 0:
+            print(f'Found {len(circuits)} circuits...', flush=True)
+
+elapsed = time.time() - start_time
+
+result = {
+    'width': WIDTH,
+    'gates': GATES,
+    'solver': SOLVER_NAME,
+    'gate_set': GATE_SET,
+    'num_circuits': len(circuits),
+    'elapsed_seconds': elapsed,
+    'circuits': circuits
+}
+
+with open(OUTPUT_FILE, 'w') as f:
+    json.dump(result, f, indent=2)
+
+print(f'\\nCompleted: {len(circuits)} identity templates in {elapsed:.2f}s')
+print(f'Results saved to: {OUTPUT_FILE}')
+"
+
+echo ""
+echo "Job completed: $(date)"

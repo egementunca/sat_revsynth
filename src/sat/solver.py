@@ -1,3 +1,21 @@
+"""SAT Solver Interface for Circuit Synthesis.
+
+This module provides a unified interface to multiple SAT solvers, supporting both
+builtin solvers (via python-sat) and external command-line solvers.
+
+Supported Solvers:
+    Builtin (python-sat): cadical103/153, glucose3/4/42, lingeling, 
+        maplechrono, maplecm, maplesat, mergesat3, minisat22, minisat-gh,
+        minicard, gluecard3/4
+    
+    External: kissat, kissat-sc2024, cadical (2.0), sbva-cadical
+
+Example:
+    >>> from sat.solver import Solver
+    >>> from sat.cnf import CNF
+    >>> solver = Solver("glucose4")
+    >>> sat, model = solver.solve(cnf)
+"""
 from pysat.solvers import Solver as PySolver
 from subprocess import Popen, PIPE
 from sat.cnf import CNF, Solution
@@ -7,9 +25,28 @@ import queue
 
 
 class Solver:
+    """Unified SAT solver interface.
+    
+    Provides a common solve() method for both python-sat builtin solvers
+    and external command-line SAT solvers.
+    
+    Args:
+        name: Solver name (must be in available_solvers).
+        args: Optional additional command-line arguments for external solvers.
+    
+    Attributes:
+        external_solvers: Dict of external solver names to default arguments.
+        builtin_solvers: List of python-sat solver names.
+        available_solvers: Combined list of all supported solvers.
+    
+    Example:
+        >>> solver = Solver("kissat")
+        >>> sat, literals = solver.solve(cnf)
+    """
     external_solvers = {
         "kissat": ["-q"],
-        # "kissat": [],
+        "kissat-sc2024": ["-q"],
+        "cadical": ["--quiet"],
         # "cms":["--verb", "0"],
         # "parkissat": ["-v=1", "-c=8", "-max-memory=8"]
     }

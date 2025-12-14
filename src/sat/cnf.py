@@ -1,3 +1,23 @@
+"""CNF Formula Builder for SAT-based Circuit Synthesis.
+
+This module provides a high-level interface for constructing CNF (Conjunctive Normal Form)
+formulas used in SAT-based reversible circuit synthesis. It wraps python-sat's CNF
+representation with additional utilities for:
+
+- Variable management with named literals
+- Common logical constraints (equals, AND, OR, XOR)
+- Cardinality constraints (at-least, at-most, exactly)
+- Solution exclusion for enumeration
+
+Example:
+    >>> cnf = CNF()
+    >>> a = cnf.reserve_name("a")
+    >>> b = cnf.reserve_name("b")
+    >>> cnf.equals(a, b).set_literal(a)
+    >>> # Now a == b == True is required
+"""
+from __future__ import annotations
+
 from collections.abc import Iterable
 from pysat.formula import CNF as CNF_core, IDPool
 from pysat.card import CardEnc
@@ -7,6 +27,18 @@ Solution = tuple[bool, list[int]]
 
 
 class Literal:
+    """A named SAT literal with a boolean polarity.
+    
+    Literals are the atomic units in CNF formulas. Each literal has:
+    - A name (string identifier for debugging)
+    - An integer ID (used in the CNF encoding)
+    - A polarity (positive or negated)
+    
+    Args:
+        name: Human-readable name for the literal.
+        id: Integer ID (non-zero). Negative means negated.
+        value: Optional explicit boolean value.
+    """
     def __init__(self, name: str, id: int, value: bool | None = None):
         self.__name = name
 
@@ -27,9 +59,11 @@ class Literal:
         return f"{self.__name}: {self.__bool__()} ({self.__value})"
 
     def value(self) -> int:
+        """Return the signed integer representation of this literal."""
         return self.__value
 
     def name(self) -> str:
+        """Return the name of this literal."""
         return self.__name
 
     def __eq__(self, other) -> bool:
@@ -40,6 +74,22 @@ class Literal:
 
 
 class CNF():
+    """CNF formula builder for SAT-based circuit synthesis.
+    
+    This class builds CNF formulas incrementally by adding constraints.
+    It manages variable names and IDs, and provides common constraint patterns.
+    
+    Attributes:
+        _cnf: The underlying pysat CNF formula.
+        _v_pool: Variable ID pool for name-to-ID mapping.
+        _max_clause_len: Maximum clause length before introducing aux variables.
+    
+    Example:
+        >>> cnf = CNF()
+        >>> x = cnf.reserve_name("x")
+        >>> y = cnf.reserve_name("y")
+        >>> cnf.xor([x, y])  # x XOR y = True
+    """
     def __init__(self):
         self._cnf = CNF_core()
         self._v_pool = IDPool(start_from=1)

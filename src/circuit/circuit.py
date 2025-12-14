@@ -1,3 +1,26 @@
+"""Reversible Circuit Representation.
+
+This module provides the Circuit class for representing reversible logic circuits
+composed of MCT (Multiple-Control Toffoli) gates. It supports:
+
+- Gate operations: X, CX, MCX (multiple-control X)
+- Equivalence transformations: rotate, reverse, permute, swap
+- Identity template enumeration via swap-space exploration (unroll)
+- Circuit comparison and truth table computation
+
+The equivalence operations define equivalence classes of circuits:
+    - Rotations: cyclic permutation of gate order
+    - Reversals: mirror the circuit
+    - Wire permutations: relabel wires
+    - Swaps: commute adjacent non-interfering gates
+
+Example:
+    >>> circ = Circuit(3)
+    >>> circ.cx(0, 1).mcx([0, 1], 2)  # CNOT then Toffoli
+    >>> print(circ)  # ASCII circuit diagram
+"""
+from __future__ import annotations
+
 from qiskit import QuantumCircuit
 from copy import copy, deepcopy
 from itertools import permutations, combinations
@@ -7,10 +30,25 @@ from utils.inplace import inplace
 from collections import deque
 
 
-Gate = tuple[list[int], int]  # Gate in integer representation
+Gate = tuple[list[int], int]  # Gate in integer representation: (controls, target)
 
 
 class Circuit:
+    """A reversible circuit composed of MCT gates.
+    
+    A circuit operates on a fixed number of wires (width) and consists of
+    a sequence of gates. Each gate is defined by its control wires and target wire.
+    
+    Attributes:
+        _width: Number of wires in the circuit.
+        _gates: List of gates as (controls, target) tuples.
+        _tt: Cached truth table (computed on demand).
+    
+    Example:
+        >>> circ = Circuit(2)
+        >>> circ.cx(0, 1)  # CNOT gate
+        >>> circ.tt()  # Get truth table
+    """
     def __init__(self, bits_num: int):
         self._width = bits_num
         self._tt: TruthTable | None = None

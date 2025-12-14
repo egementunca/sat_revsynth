@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Iterable
 from random import shuffle
 from utils.inplace import inplace

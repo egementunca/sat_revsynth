@@ -1,3 +1,29 @@
+"""SAT-based Circuit Synthesis.
+
+This module provides SAT-based exact synthesis for reversible circuits.
+Given a target truth table and gate count, it finds a circuit that implements
+the function (or proves none exists).
+
+The SAT encoding models:
+    - Gate structure: each gate has exactly one target, controls are a subset of other wires
+    - Data flow: bits propagate through gates with XOR updates at targets
+    - Input/Output: initial state is identity, output matches target truth table
+
+Key features:
+    - Exact synthesis with specified gate count
+    - Solution enumeration (exclude previously found circuits)
+    - Constraint options: disable_empty_lines, set_global_controls_num
+    - Support for excluding subcircuits (identity templates)
+
+Example:
+    >>> from truth_table.truth_table import TruthTable
+    >>> from sat.solver import Solver
+    >>> tt = TruthTable(2).cx(0, 1)  # CNOT function
+    >>> synth = CircuitSynthesizer(tt, gate_count=1, solver=Solver("glucose4"))
+    >>> circuit = synth.solve()
+"""
+from __future__ import annotations
+
 from circuit.circuit import Circuit, Gate
 from circuit.dim_group import DimGroup
 from circuit.collection import Collection
@@ -12,6 +38,23 @@ LiteralGrid = list[list[Literal]]
 
 
 class CircuitSynthesizer:
+    """SAT-based exact synthesizer for reversible circuits.
+    
+    Encodes the synthesis problem as a SAT formula and uses a solver to find
+    circuits that implement the target truth table with exactly the specified
+    number of gates.
+    
+    Args:
+        output: Target truth table to synthesize.
+        gate_count: Exact number of gates in the circuit.
+        solver: SAT solver to use.
+    
+    Attributes:
+        _output: Target truth table.
+        _gate_count: Number of gates.
+        _width: Number of wires (derived from truth table).
+        _cnf: The SAT formula encoding the synthesis constraints.
+    """
     def __init__(self, output: TruthTable, gate_count: int, solver: Solver):
         assert len(output) >= 2
         assert len(output) == pow(2, len(output[0]))

@@ -127,6 +127,11 @@ def main():
     # Submit jobs
     jobs = []
     for width, gates in params:
+        # ECA57 requires at least 3 wires
+        if args.gate_set == "eca57" and width < 3:
+            print(f"Skipping w={width}, g={gates}: ECA57 requires width >= 3")
+            continue
+            
         job_id = submit_job(
             width=width,
             gates=gates,

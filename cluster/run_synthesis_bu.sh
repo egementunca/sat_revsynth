@@ -91,6 +91,31 @@ if GATE_SET == 'mct':
         if total_found % 1000 == 0:
             print(f'Processed {total_found}, unique: {len(unique_circuits)}...', flush=True)
 
+elif GATE_SET == 'eca57':
+    from synthesizers.eca57_synthesizer import ECA57Synthesizer
+    
+    synth = ECA57Synthesizer(identity_tt, GATES, solver)
+    
+    while True:
+        circuit = synth.solve()
+        if circuit is None:
+            break
+            
+        total_found += 1
+        
+        # Simple string-based deduplication for ECA57 (no canonicalizer yet)
+        # Use tuple representation of gates: (target, ctrl1, ctrl2)
+        gates_data = [g.to_tuple() for g in circuit.gates()]
+        raw = str(gates_data)
+        
+        if raw not in unique_circuits:
+            unique_circuits[raw] = gates_data
+            
+        synth.exclude_solution(circuit)
+        
+        if total_found % 1000 == 0:
+            print(f'Processed {total_found} (ECA57), unique: {len(unique_circuits)}...', flush=True)
+
 elapsed = time.time() - start_time
 
 result = {

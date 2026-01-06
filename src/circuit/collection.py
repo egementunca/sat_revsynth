@@ -1,3 +1,22 @@
+"""Collection of Identity Circuit Templates.
+
+A Collection is a 2D grid of DimGroups, indexed by [width][gate_count].
+It provides operations for:
+- Loading/storing circuit databases
+- Extending circuits with empty/full control lines
+- Removing reducible circuits (those containing smaller identities)
+
+File format:
+    h <max_width> <max_gc>      # Header
+    c <width> <gc>              # Circuit start
+    <target> <ctrl1> <ctrl2>... # Gate (one per line, gc lines total)
+
+Example:
+    >>> coll = Collection(max_width=5, max_gate_count=8)
+    >>> coll.from_file("identities.txt")
+    >>> coll.fill_empty_line_extensions()
+    >>> coll.remove_reducibles()
+"""
 from circuit.dim_group import DimGroup
 from circuit.circuit import Circuit
 from itertools import product
@@ -5,7 +24,18 @@ from copy import copy
 
 
 class Collection:
+    """2D grid of DimGroups indexed by [width][gate_count].
+    
+    Provides operations for building and manipulating circuit databases,
+    including extension to larger widths and reducibility filtering.
+    
+    Attributes:
+        _max_width: Maximum wire count.
+        _max_gate_count: Maximum gate count.
+        _groups: 2D list of DimGroups, _groups[width][gc].
+    """
     def __init__(self, max_width: int, max_gate_count: int):
+        """Create a Collection with empty DimGroups for all dimension pairs."""
         self._max_width = max_width
         self._max_gate_count = max_gate_count
         self._w_iter = range(max_width + 1)
@@ -29,16 +59,33 @@ class Collection:
         return string
 
     def fill_empty_line_extensions(self) -> "Collection":
+        """Extend all circuits by adding spectator wires up to max_width.
+        
+        For each circuit, generates versions with additional wires that
+        no gate touches. Works for any MCT gate (NOT, CNOT, Toffoli, etc.).
+        """
         extensions = self._empty_line_extensions()
         self.join(extensions)
         return self
 
     def fill_full_line_extensions(self) -> "Collection":
+        """Extend all circuits by adding control wires up to max_width.
+        
+        For each circuit, generates versions where new wires are added as
+        controls to ALL gates. Example: NOT→CNOT→Toffoli→4-controlled-X.
+        Only works for NCT (not ECA57, which has fixed 2 controls).
+        """
         extensions = self._full_line_extensions()
         self.join(extensions)
         return self
 
     def remove_reducibles(self) -> "Collection":
+        """Remove circuits containing smaller identity templates as subcircuits.
+        
+        For each (width, gc), uses templates at (width, smaller_gc) as reductors.
+        A circuit is reducible if it contains a smaller identity - meaning
+        it's not a minimal/irreducible representative.
+        """
         for width, reducing_gc in copy(self._group_ids_iter):
             print(f"  -- RMD({width}, {reducing_gc})")
             reducing_dg = self[width][reducing_gc]
@@ -48,12 +95,14 @@ class Collection:
         return self
 
     def remove_duplicates(self) -> "Collection":
+        """Remove duplicate circuits from all DimGroups."""
         for width, gc in copy(self._group_ids_iter):
             print(f"  -- RMD({width}, {gc})")
             self[width][gc].remove_duplicates()
         return self
 
     def _empty_line_extensions(self) -> "Collection":
+        """Internal: compute all empty-line extensions without joining."""
         extensions = Collection(self._max_width, self._max_gate_count)
         for width, gc in copy(self._group_ids_iter):
             print(f"  -- FEL({width}, {gc})")
@@ -65,6 +114,7 @@ class Collection:
         return extensions
 
     def _full_line_extensions(self) -> "Collection":
+        """Internal: compute all full-line extensions without joining."""
         extensions = Collection(self._max_width, self._max_gate_count)
         for width, gc in copy(self._group_ids_iter):
             print(f"  -- FFL({width}, {gc})")
@@ -82,11 +132,13 @@ class Collection:
         )
 
     def join(self, other: "Collection") -> None:
+        """Merge another Collection's circuits into this one."""
         self._validate_collection(other)
         for width, gc in copy(self._group_ids_iter):
             self[width][gc].join(other[width][gc])
 
     def from_file(self, file_name: str):
+        """Load circuits from file and add to this Collection."""
         with open(file_name, 'r') as file:
             for line in file:
                 match line.strip().split(' '):

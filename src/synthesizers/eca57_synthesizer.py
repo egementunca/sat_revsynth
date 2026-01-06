@@ -40,13 +40,15 @@ class ECA57Synthesizer:
         >>> circuit = synth.solve()
     """
     
-    def __init__(self, output: "TruthTable", gate_count: int, solver: Solver):
+    def __init__(self, output: "TruthTable", gate_count: int, solver: Solver, 
+                 disable_empty_lines: bool = True):
         self._output = output
         self._gate_count = gate_count
         self._solver = solver
         self._width = output.bits_num()
         self._words = len(output)
         self._circuit: Optional[ECA57Circuit] = None
+        self._disable_empty_lines = disable_empty_lines
         
         assert self._width >= 3, "ECA57 requires at least 3 wires"
         
@@ -99,6 +101,18 @@ class ECA57Synthesizer:
                 cnf.nand(targets[g][w], ctrl2s[g][w])
                 # ctrl1 and ctrl2 cannot be same wire
                 cnf.nand(ctrl1s[g][w], ctrl2s[g][w])
+        
+        # Disable empty lines: each wire must be used as target or control at least once
+        if self._disable_empty_lines:
+            for w in range(width):
+                # wire_used_w = OR over all gates: (t_{w}_{g} OR c1_{w}_{g} OR c2_{w}_{g})
+                wire_usage = []
+                for g in range(gates):
+                    wire_usage.append(targets[g][w])
+                    wire_usage.append(ctrl1s[g][w])
+                    wire_usage.append(ctrl2s[g][w])
+                # At least one of these must be true
+                cnf.atleast(wire_usage, 1)
         
         # Data flow constraints
         for i in range(words):
@@ -220,4 +234,59 @@ class ECA57Synthesizer:
         
         self._cnf.exclude_by_values(exclusion_list)
         self._circuit = None  # Reset cached solution
+        return self
+    
+    def _build_exclusion_at_offset(self, circuit: ECA57Circuit, offset: int) -> list:
+        """Build exclusion list for circuit starting at gate offset.
+        
+        Args:
+            circuit: Circuit to exclude.
+            offset: Starting gate position in the synthesizer's circuit.
+            
+        Returns:
+            List of literal values for exclusion clause.
+        """
+        exclusion_list = []
+        
+        for g, gate in enumerate(circuit.gates()):
+            synth_gate_idx = g + offset
+            for w in range(self._width):
+                t_lit = self._targets[synth_gate_idx][w].value()
+                t_lit = t_lit if w == gate.target else -t_lit
+                exclusion_list.append(t_lit)
+                
+                c1_lit = self._ctrl1s[synth_gate_idx][w].value()
+                c1_lit = c1_lit if w == gate.ctrl1 else -c1_lit
+                exclusion_list.append(c1_lit)
+                
+                c2_lit = self._ctrl2s[synth_gate_idx][w].value()
+                c2_lit = c2_lit if w == gate.ctrl2 else -c2_lit
+                exclusion_list.append(c2_lit)
+        
+        return exclusion_list
+    
+    def exclude_subcircuit(self, circuit: ECA57Circuit) -> "ECA57Synthesizer":
+        """Exclude a circuit appearing as subcircuit at any position.
+        
+        This prevents finding circuits that contain the given circuit
+        as a contiguous subsequence of gates, which is useful for
+        excluding larger circuits that contain known identity templates.
+        
+        Args:
+            circuit: Circuit to exclude as subcircuit.
+            
+        Returns:
+            Self for chaining.
+        """
+        inner_gc = len(circuit)
+        max_shift = self._gate_count - inner_gc
+        
+        if max_shift < 0:
+            return self  # Subcircuit is larger than target, nothing to exclude
+        
+        for shift in range(max_shift + 1):
+            exclusion_list = self._build_exclusion_at_offset(circuit, shift)
+            self._cnf.exclude_by_values(exclusion_list)
+        
+        self._circuit = None
         return self

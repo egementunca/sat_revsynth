@@ -168,10 +168,25 @@ class CircuitSynthesizer:
         return self
 
     def set_global_controls_num(self, controls_num: int) -> "CircuitSynthesizer":
+        """Set exact total number of controls across all gates."""
         assert 0 <= controls_num and controls_num <= (self._width - 1) * self._gate_count
         self._global_controls_num = controls_num
         all_controls = reduce(lambda x, y: x+y, self._controls)
         self._cnf.exactly(all_controls, controls_num)
+        return self
+
+    def set_max_controls_per_gate(self, max_controls: int) -> "CircuitSynthesizer":
+        """Limit each gate to at most max_controls control wires.
+        
+        For NCT synthesis, use max_controls=2 to restrict to NOT/CNOT/Toffoli.
+        
+        Args:
+            max_controls: Maximum number of control wires per gate (0=NOT, 1=CNOT, 2=Toffoli).
+        """
+        assert 0 <= max_controls <= self._width - 1
+        for gid in range(self._gate_count):
+            gate_controls = self._controls[gid]
+            self._cnf.atmost(gate_controls, max_controls)
         return self
 
     def exclude_subcircircuit(self, circuit: Circuit) -> "CircuitSynthesizer":

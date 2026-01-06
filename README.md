@@ -2,7 +2,11 @@
 
 ## Framework for Synthesis of Reversible Logic using SAT-Solvers
 
+
 ![Tests](https://github.com/M4D-A/sat_revsynth/actions/workflows/pytest.yml/badge.svg) ![pep8](https://github.com/M4D-A/sat_revsynth/actions/workflows/flake8.yml/badge.svg)
+
+[📖 **Read the Comprehensive Walkthrough**](WALKTHROUGH.md)
+
 
 A Python framework for **exhaustive synthesis** of reversible logic circuits and **identity templates** using SAT-solver technology. Based on the procedural generation technique from our research paper.
 

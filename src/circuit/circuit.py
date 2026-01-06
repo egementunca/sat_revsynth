@@ -98,12 +98,18 @@ class Circuit:
         return self._tt
 
     def gates(self) -> list[Gate]:
+        """Return list of gates as (controls, target) tuples."""
         return self._gates
 
     def controls_num(self) -> int:
+        """Count total control wires across all gates."""
         return reduce(lambda x, y: x + len(y[0]), self._gates, 0)
 
-    def gate_swappable(self, index: int, ignore_identical: bool = True) -> bool:
+    def gate_swappable(self, index: int, ignore_identical: bool = False) -> bool:
+        """Check if gates at index and index+1 can be swapped.
+        
+        Two gates can swap if neither's target is in the other's controls.
+        """
         lhs = self._gates[index]
         rhs = self._gates[(index + 1) % len(self)]
         if ignore_identical and lhs == rhs:
@@ -115,12 +121,14 @@ class Circuit:
         return not (lhs_collision) and not (rhs_collision)
 
     def swappable_gates(self, ignore_identical: bool = True) -> list[int]:
+        """Return indices of all swappable gate positions."""
         indices = [
             i for i in range(len(self)) if self.gate_swappable(i, ignore_identical)
         ]
         return indices
 
     def contains(self, subcircuit: "Circuit") -> bool:
+        """Check if this circuit contains subcircuit as contiguous subsequence."""
         assert self._width == subcircuit._width
         inner_len = len(subcircuit)
         len_diff = len(self) - inner_len
@@ -131,10 +139,12 @@ class Circuit:
         return False
 
     def reducible(self, subcircuits: list["Circuit"]) -> bool:
+        """Check if circuit contains any of the given subcircuits."""
         return any(self.contains(subc) for subc in subcircuits)
 
     @classmethod
     def filter_duplicates(cls, unfiltered: list["Circuit"]) -> list["Circuit"]:
+        """Remove duplicate circuits from list (preserves first occurrence)."""
         return [circ for i, circ in enumerate(unfiltered) if circ not in unfiltered[:i]]
 
     @inplace
@@ -175,12 +185,14 @@ class Circuit:
         return self
 
     def reverse(self) -> "Circuit":
+        """Return reversed circuit: [A,B,C] → [C,B,A]."""
         new = Circuit(self._width)
         new._gates = deepcopy(self._gates)
         new._gates.reverse()
         return new
 
     def rotate(self, shift: int) -> "Circuit":
+        """Return rotated circuit: cyclic shift of gate order."""
         size = len(self)
         shift = (shift % size) + size % size
         new = Circuit(self._width)
@@ -189,6 +201,7 @@ class Circuit:
         return new
 
     def permute(self, permutation: list[int]) -> "Circuit":
+        """Return circuit with relabeled wires: wire i → wire perm[i]."""
         new_gates: list[Gate] = []
         for controls, target in self._gates:
             new_target = permutation[target]
@@ -199,6 +212,7 @@ class Circuit:
         return new
 
     def swap(self, id: int) -> "Circuit":
+        """Return circuit with gates at id and id+1 swapped."""
         assert 0 <= id and id < len(self)
         next_id = (id + 1) % len(self)
         new = Circuit(self._width)
@@ -207,14 +221,113 @@ class Circuit:
         return new
 
     def slice(self, start: int, end: int) -> "Circuit":
+        """Extract subsequence of gates [start:end]."""
         new = Circuit(self._width)
         new._gates = self._gates[start:end]
         return new
 
+    def compress(self, direction: str = "left", max_iterations: int = 100, 
+                  track_indices: bool = False) -> "Circuit | tuple[Circuit, list[int]]":
+        """Compress circuit by canceling inverse gate pairs.
+        
+        Pushes gates through commuting neighbors to find and cancel identical pairs.
+        MCT/ECA57 gates are self-inverse: G·G = I.
+        
+        Args:
+            direction: "left", "right", "best", or "alternate".
+            max_iterations: Max compression passes.
+            track_indices: If True, return (circuit, surviving_indices).
+        """
+        if direction == "best":
+            left = self._do_compress(from_right=False, max_iters=max_iterations, track=track_indices)
+            right = self._do_compress(from_right=True, max_iters=max_iterations, track=track_indices)
+            left_len = len(left[0]) if track_indices else len(left)
+            right_len = len(right[0]) if track_indices else len(right)
+            return left if left_len <= right_len else right
+        elif direction == "alternate":
+            return self._do_compress_alt(max_iters=max_iterations, track=track_indices)
+        else:
+            return self._do_compress(from_right=(direction == "right"), 
+                                      max_iters=max_iterations, track=track_indices)
+    
+    def _do_compress(self, from_right: bool, max_iters: int, track: bool):
+        """Core compression: push gates in one direction until fixpoint."""
+        gates = [(g, i) for i, g in enumerate(self._gates)]
+        for _ in range(max_iters):
+            if not self._compress_pass(gates, from_right):
+                break
+        return self._build_result(gates, track)
+    
+    def _do_compress_alt(self, max_iters: int, track: bool):
+        """Alternate left/right until no progress."""
+        gates = [(g, i) for i, g in enumerate(self._gates)]
+        for _ in range(max_iters):
+            prog_l = self._compress_pass(gates, from_right=False)
+            prog_r = self._compress_pass(gates, from_right=True)
+            if not prog_l and not prog_r:
+                break
+        return self._build_result(gates, track)
+    
+    def _compress_pass(self, gates: list, from_right: bool) -> bool:
+        """One compression pass. Mutates gates list. Returns True if any cancellation."""
+        made_progress = False
+        while True:
+            n = len(gates)
+            if n == 0:
+                break
+            cancelled = False
+            for idx in (range(n-1, -1, -1) if from_right else range(n)):
+                if idx >= len(gates):
+                    continue
+                gate, _ = gates[idx]
+                pos = idx
+                step = -1 if from_right else 1
+                bound = (lambda p: p > 0) if from_right else (lambda p: p < len(gates) - 1)
+                
+                while bound(pos):
+                    neighbor, _ = gates[pos + step]
+                    if gate == neighbor:
+                        # Cancel pair
+                        del gates[max(pos, pos + step)]
+                        del gates[min(pos, pos + step)]
+                        cancelled = made_progress = True
+                        break
+                    if self._gates_commute(gate, neighbor):
+                        gates[pos], gates[pos + step] = gates[pos + step], gates[pos]
+                        pos += step
+                    else:
+                        break
+                if cancelled:
+                    break
+            if not cancelled:
+                break
+        return made_progress
+    
+    def _build_result(self, gates: list, track: bool):
+        """Build Circuit from gates list."""
+        result = Circuit(self._width)
+        result._gates = [g for g, _ in gates]
+        if track:
+            return result, [i for _, i in gates]
+        return result
+    
+    def _gates_commute(self, g1: Gate, g2: Gate) -> bool:
+        """Check if two gates commute (can swap without changing result).
+        
+        Gates commute UNLESS one's target is in the other's controls.
+        Same-target gates always commute (XOR is commutative).
+        """
+        c1, t1 = g1
+        c2, t2 = g2
+        # Only non-commuting case: target in other's controls
+        return t1 not in c2 and t2 not in c1
+
     def min_slice(self) -> "Circuit":
+        """Return first half+1 of circuit (for identity template analysis)."""
         return self.slice(0, len(self) // 2 + 1)
 
     def add_empty_line(self, line_id: int) -> "Circuit":
+        """Insert new wire at line_id that no gate touches."""
         assert 0 <= line_id and line_id <= self._width
         new = Circuit(self._width + 1)
         for controls, target in self._gates:
@@ -224,6 +337,7 @@ class Circuit:
         return new
 
     def add_full_line(self, line_id: int) -> "Circuit":
+        """Insert new wire at line_id as control to all gates."""
         assert 0 <= line_id and line_id <= self._width
         new = Circuit(self._width + 1)
         for controls, target in self._gates:
@@ -233,17 +347,20 @@ class Circuit:
         return new
 
     def rotations(self) -> list["Circuit"]:
+        """Return all unique cyclic rotations of this circuit."""
         equivalents = [self.rotate(s) for s in range(len(self))]
         unique = self.filter_duplicates(equivalents)
         return unique
 
     def permutations(self) -> list["Circuit"]:
+        """Return all unique wire permutations of this circuit."""
         all_permutations = permutations(list(range(self._width)))
         equivalents = [self.permute(list(perm)) for perm in all_permutations]
         unique = self.filter_duplicates(equivalents)
         return unique
 
     def swaps(self) -> list["Circuit"]:
+        """Return all circuits reachable by one adjacent gate swap."""
         swap_ids = self.swappable_gates()
         equivalents = [copy(self)] + [self.swap(id) for id in swap_ids]
         unique = self.filter_duplicates(equivalents)
@@ -257,11 +374,17 @@ class Circuit:
                 node._dfs(visited)
 
     def swap_space_dfs(self) -> list["Circuit"]:
+        """Find all circuits reachable via gate swaps (DFS traversal)."""
         nodes = []
         self._dfs(nodes)
         return nodes
 
     def swap_space_bfs(self, initial: list["Circuit"] = []) -> list["Circuit"]:
+        """Find all circuits reachable via gate swaps (BFS traversal).
+        
+        Returns the "swap space" - all circuits equivalent under commuting
+        adjacent non-interfering gates.
+        """
         visited: list["Circuit"] = []
         queue: deque["Circuit"] = deque()
         queue.append(self)
@@ -278,6 +401,7 @@ class Circuit:
         return visited
 
     def local_unroll(self) -> list["Circuit"]:
+        """Quick equivalence: rotations + reverse + permutations (no swaps)."""
         equivalents = self.rotations()
         temp_list = [circuit.reverse() for circuit in equivalents]
         equivalents += temp_list
@@ -288,6 +412,11 @@ class Circuit:
         return equivalents
 
     def unroll(self, initial: list["Circuit"] = []) -> list["Circuit"]:
+        """Full equivalence class enumeration.
+        
+        Combines: swap-space × rotations × reverse × wire permutations.
+        Returns all circuits equivalent to this one under these transformations.
+        """
         equivalents = self.swap_space_bfs(initial)
 
         temp_list = []
@@ -309,6 +438,7 @@ class Circuit:
         return equivalents
 
     def empty_line_extensions(self, target_width: int) -> list["Circuit"]:
+        """All ways to add empty (spectator) wires to reach target_width."""
         lines_to_insert = target_width - self._width
         assert lines_to_insert >= 0
         extensions = []
@@ -320,6 +450,7 @@ class Circuit:
         return extensions
 
     def full_line_extensions(self, target_width: int) -> list["Circuit"]:
+        """All ways to add control wires to reach target_width."""
         lines_to_insert = target_width - self._width
         assert lines_to_insert >= 0
         extensions = []

@@ -1,4 +1,9 @@
+# Core dependencies
 wheel
 pytest
-python-sat == 0.1.8.dev10
-qiskit 
+python-sat==0.1.8.dev10
+qiskit>=1.0.0
+numpy>=1.21.0
+networkx>=2.6.0
+lmdb>=1.4.0
+blake3>=0.4.0

@@ -162,3 +162,8 @@ cython_debug/
 
 *.prof
 *.out
+
+# Legacy/old files
+old/
+benchmark_7_17_v2/
+data/.DS_Store

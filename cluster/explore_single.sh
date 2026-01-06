@@ -16,19 +16,22 @@
 
 set -e
 
+# Ensure kissat binaries are in PATH
+export PATH="$HOME/bin:$PATH"
+
 # Parameters (passed via qsub -v)
 WIDTH="${WIDTH:-4}"
 GC="${GC:-4}"
-SOLVER="${SOLVER:-glucose4}"
+SOLVER="${SOLVER:-kissat-sc2024+glucose4+cadical153+maplesat}"
 SKIP_WITNESSES="${SKIP_WITNESSES:-true}"
 WORKERS="${WORKERS:-7}"
 
 # Paths
 PROJECT_DIR="${SGE_O_WORKDIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 SCRATCH_DIR="/scratch/${USER}/eca57_explore_w${WIDTH}_gc${GC}_$$"
-FINAL_DB_DIR="${PROJECT_DIR}/data"
-FINAL_DB="${FINAL_DB_DIR}/collection.lmdb"
-LOCAL_DB="${SCRATCH_DIR}/collection.lmdb"
+FINAL_DB_DIR="${PROJECT_DIR}/data/jobs"
+FINAL_DB="${FINAL_DB_DIR}/w${WIDTH}_gc${GC}.lmdb"
+LOCAL_DB="${SCRATCH_DIR}/w${WIDTH}_gc${GC}.lmdb"
 
 echo "=============================================="
 echo "ECA57 Template Exploration"
@@ -48,13 +51,11 @@ echo "=============================================="
 mkdir -p "$SCRATCH_DIR"
 mkdir -p "${PROJECT_DIR}/logs"
 
-# Copy existing DB to scratch if it exists (for incremental updates)
-if [ -d "$FINAL_DB" ]; then
-    echo "Copying existing LMDB to scratch..."
-    cp -r "$FINAL_DB" "$LOCAL_DB"
-else
-    echo "No existing LMDB found, starting fresh."
-fi
+# Each job writes to its own LMDB file (no concurrent conflicts)
+echo "Writing to per-job LMDB: $LOCAL_DB"
+
+# Load newer GCC to fix GLIBCXX errors (pysat requires newer libstdc++)
+module load gcc/12.2.0
 
 # Activate virtual environment
 cd "$PROJECT_DIR"

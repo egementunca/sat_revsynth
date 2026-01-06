@@ -70,7 +70,11 @@ def explore_staggered(db_path: str, max_width_limit: int, solver_inputs: str, sk
         effective_workers = num_workers
 
     # Parse solver input: "glucose4,cadical153" -> ["glucose4", "cadical153"] or "glucose4"
-    if "," in solver_inputs:
+    # Parse solver input: "glucose4+cadical153" or "glucose4,cadical153"
+    if "+" in solver_inputs:
+        solver_arg = solver_inputs.split("+")
+        print(f"Solver Racer Enabled: {solver_arg}")
+    elif "," in solver_inputs:
         solver_arg = solver_inputs.split(",")
         print(f"Solver Racer Enabled: {solver_arg}")
     else:

@@ -61,28 +61,37 @@ tail -f logs/eca57_w4g8.*.log     # Follow log
 
 | Width | GC | Memory (est.) | Walltime |
 |-------|----|---------------|----------|
-| 4 | 4-6 | 16-32 GB | 4-12h |
-| 4 | 7-8 | 48-64 GB | 24-48h |
-| 4 | 9-10 | 80-96 GB | 72-96h |
-| 5 | 6-8 | 48-96 GB | 24-72h |
-| 6-8 | 4-6 | 32-96 GB | 24-96h |
+| 4     | 4   | 16-32 GB | 4-12h |
+| 4     | 7   | 48-64 GB | 24-48h |
+| 4     | 9   | 80-96 GB | 72-96h |
+| 5     | 6   | 48-96 GB | 24-72h |
+| 6-8   | 4   | 32-96 GB | 24-96h |
 
-## Solver Selection
+**Default: 4-way Racing** - `kissat-sc2024+glucose4+cadical153+maplesat`
 
-**Default: `glucose4`** - Good balance of speed and memory.
+Racing runs multiple solvers in parallel and uses the first result. This reduces tail latency.
+**Note:** Use `+` as separator to ensure safe passing through `qsub`.
 
 | Solver | Type | Notes |
 |--------|------|-------|
-| `glucose4` | Builtin | **Recommended** - good for large enumerations |
-| `cadical153` | Builtin | Fast but higher memory |
-| `minisat22` | Builtin | Lightweight |
+| `kissat-sc2024`| External | **SAT Competition 2024 Winner** |
+| `glucose4` | Builtin | Good for large enumerations |
+| `cadical153` | Builtin | Fast on structured problems |
+| `maplesat` | Builtin | Strong on competition benchmarks |
+
+To use a single solver: `--solver glucose4`
+To customize racing: `--solver "kissat-sc2024+glucose4+minisat22"`
 
 ## Results
 
-Results are written to `data/collection.lmdb` (LMDB database).
+Each job writes to `data/jobs/w{W}_gc{GC}.lmdb` (avoids concurrent write conflicts).
 
 ```bash
-# Check database stats
+# After jobs complete, merge into single database:
+python cluster/merge_jobs.py                    # Merge all
+python cluster/merge_jobs.py --dry-run          # Preview only
+
+# Check final database stats:
 python -c "from src.database.lmdb_env import TemplateDBEnv; print(TemplateDBEnv('data/collection.lmdb').stats())"
 ```
 

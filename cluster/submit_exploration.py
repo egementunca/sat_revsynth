@@ -24,33 +24,33 @@ from typing import List, Tuple
 RESOURCE_ESTIMATES = {
     # Width 4: Moderate memory
     (4, 4): (4, 4, 4),
-    (4, 5): (4, 4, 8),
+    (4, 5): (6, 4, 8),
     (4, 6): (8, 4, 12),
     (4, 7): (8, 6, 24),
-    (4, 8): (8, 8, 48),     # ~64GB, crashed on MacBook
-    (4, 9): (8, 10, 72),    # ~80GB
-    (4, 10): (8, 12, 96),   # ~96GB
+    (4, 8): (8, 8, 48),     # ~64GB
+    (4, 9): (8, 8, 72),     # ~64GB (Capped for standard queue)
+    (4, 10): (8, 8, 72),    # ~64GB (Capped for standard queue)
     
     # Width 5: Higher memory
     (5, 4): (4, 4, 4),
     (5, 5): (8, 4, 8),
     (5, 6): (8, 6, 24),
     (5, 7): (8, 8, 48),
-    (5, 8): (8, 12, 72),
+    (5, 8): (8, 8, 72),     # ~64GB (Capped for standard queue)
     
     # Width 6: Very high memory
     (6, 4): (8, 4, 8),
     (6, 5): (8, 6, 24),
     (6, 6): (8, 8, 48),
-    (6, 7): (8, 12, 96),
+    (6, 7): (8, 8, 72),     # ~64GB (Capped for standard queue)
     
     # Width 7-8: Maximum memory
     (7, 4): (8, 6, 24),
     (7, 5): (8, 8, 48),
-    (7, 6): (8, 12, 96),
+    (7, 6): (8, 8, 72),     # ~64GB (Capped for standard queue)
     (8, 4): (8, 6, 24),
     (8, 5): (8, 8, 48),
-    (8, 6): (8, 12, 96),
+    (8, 6): (8, 8, 72),     # ~64GB (Capped for standard queue)
 }
 
 # Default resources for unlisted combinations
@@ -133,8 +133,8 @@ def main():
                        help="Single width to submit")
     parser.add_argument("--gc", type=int,
                        help="Single gate count to submit (requires --width)")
-    parser.add_argument("--solver", default="glucose4",
-                       help="SAT solver (default: glucose4)")
+    parser.add_argument("--solver", default="kissat-sc2024+glucose4+cadical153+maplesat",
+                       help="SAT solver(s), + or , separated (use + for qsub safety)")
     parser.add_argument("--skip-witnesses", action="store_true", default=True,
                        help="Skip witness extraction (default: True)")
     parser.add_argument("--workers", type=int, default=7,

@@ -7,6 +7,16 @@ from copy import copy
 
 
 class TruthTable:
+    """Represents a boolean function as a truth table.
+    
+    Stores the mapping of input bit strings to output bit strings.
+    Supports operations like applying gates, permutation, and inversion.
+
+    Args:
+        bits_num: Number of variables (wires) in the function.
+        values: Optional list of integer output values (one per row).
+        bits: Optional list of bit-lists (one per row).
+    """
     def __init__(
         self,
         bits_num: int,
@@ -27,13 +37,16 @@ class TruthTable:
         self._bits = bits
         self._bits_num = bits_num
 
-    def values(self):
+    def values(self) -> list[int]:
+        """Return the truth table as a list of integer values."""
         return [self.row_to_value(row) for row in self._bits]
 
-    def bits_num(self):
+    def bits_num(self) -> int:
+        """Return the number of bits (width)."""
         return self._bits_num
 
-    def bits(self):
+    def bits(self) -> list[list[int]]:
+        """Return the truth table as a list of bit-lists."""
         return self._bits
 
     def __copy__(self):
@@ -64,6 +77,7 @@ class TruthTable:
 
     @staticmethod
     def row_to_value(row: list[int]) -> int:
+        """Convert a list of bits to an integer value."""
         value = 0
         for i, b in enumerate(row):
             value += 2**i * b
@@ -71,16 +85,34 @@ class TruthTable:
 
     @staticmethod
     def value_to_row(value: int, bits_num: int) -> list[int]:
+        """Convert an integer value to a list of bits."""
         return [(value >> s) & 1 for s in range(bits_num)]
 
     @inplace
-    def x(self, target: int, **_):
+    def x(self, target: int, **_) -> "TruthTable":
+        """Apply a Pauli-X (NOT) gate to a target bit.
+
+        Args:
+            target: index of the target bit (0 to bits_num-1).
+
+        Returns:
+            The modified TruthTable (in-place).
+        """
         for row in self._bits:
             row[target] = 1 - row[target]
         return self
 
     @inplace
     def cx(self, control: int, target: int, **_) -> "TruthTable":
+        """Apply a Controlled-NOT (CNOT) gate.
+
+        Args:
+            control: index of the control bit.
+            target: index of the target bit.
+        
+        Returns:
+            The modified TruthTable (in-place).
+        """
         for row in self._bits:
             if row[control] == 1:
                 row[target] = 1 - row[target]
@@ -88,6 +120,15 @@ class TruthTable:
 
     @inplace
     def mcx(self, controls: Iterable[int], target: int, **_) -> "TruthTable":
+        """Apply a Multiple-Controlled-X (Toffoli) gate.
+
+        Args:
+            controls: iterable of control bit indices.
+            target: index of the target bit.
+
+        Returns:
+            The modified TruthTable (in-place).
+        """
         for row in self._bits:
             if all([row[control] == 1 for control in controls]):
                 row[target] = 1 - row[target]
@@ -95,6 +136,11 @@ class TruthTable:
 
     @inplace
     def shuffle(self, **_) -> "TruthTable":
+        """Randomly shuffle the output rows of the truth table.
+
+        Returns:
+            The modified TruthTable (in-place).
+        """
         assert self._bits is not None
         new_bits = [copy(row) for row in self.bits()]
         shuffle(new_bits)
@@ -103,6 +149,13 @@ class TruthTable:
 
     @inplace
     def inverse(self, **_) -> "TruthTable":
+        """Invert the function (compute f^-1).
+        
+        Assumes the function is a permutation (reversible).
+
+        Returns:
+            The modified TruthTable (in-place).
+        """
         values = self.values()
         inverse_values = [-1] * len(values)
         for i, p in enumerate(values):
@@ -114,6 +167,17 @@ class TruthTable:
     def permute(
         self, permutation: list[int], permute_input: bool = True, **_
     ) -> "TruthTable":
+        """Permute the wires (variables) of the truth table.
+
+        Args:
+            permutation: list representing the new order of wires. 
+                         Example: [1, 0] swaps wire 0 and 1.
+            permute_input: if True, applies permutation to input side (effectively reordering variables).
+                           if False, applies to output side (reordering bits in output).
+
+        Returns:
+            The modified TruthTable (in-place).
+        """
         assert len(permutation) == self._bits_num
         assert sorted(permutation) == list(range(self._bits_num))
 

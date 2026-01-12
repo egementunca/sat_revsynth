@@ -78,6 +78,15 @@ class Solver:
         self.__args = args
 
     def solve(self, cnf: CNF) -> Solution:
+        """Run the SAT solver on the given CNF formula.
+        
+        Args:
+            cnf: The formula in CNF format.
+            
+        Returns:
+            Solution tuple: (satisfiable: bool, literals: list[int]).
+            If unsatisfiable, literals is empty.
+        """
         if self.__name in self.builtin_solvers:
             solution = self._solve_builtin(cnf)
         elif self.__name in self.external_solvers:

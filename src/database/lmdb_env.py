@@ -146,7 +146,13 @@ class TemplateDBEnv:
         return txn.get(key.encode(), db=self._dbs[DB_META])
     
     def put_meta(self, txn, key: str, value: bytes):
-        """Put value in meta database."""
+        """Put value in meta database.
+        
+        Args:
+            txn: LMDB write transaction.
+            key: Meta key string.
+            value: Value bytes.
+        """
         txn.put(key.encode(), value, db=self._dbs[DB_META])
     
     def get_schema_version(self, txn) -> int:
@@ -196,7 +202,19 @@ class TemplateDBEnv:
     
     def put_template(self, txn, basis_id: int, width: int, gate_count: int, 
                      canonical_hash: bytes, record: bytes) -> bool:
-        """Put template record. Returns False if already exists."""
+        """Put template record.
+        
+        Args:
+            txn: LMDB write transaction.
+            basis_id: Gate basis ID.
+            width: Circuit width.
+            gate_count: Number of gates.
+            canonical_hash: Unique hash of the template.
+            record: Serialized TemplateRecord bytes.
+            
+        Returns:
+            True if inserted, False if already exists.
+        """
         key = self.make_template_key(basis_id, width, gate_count, canonical_hash)
         db = self._dbs[DB_TEMPLATES_BY_HASH]
         
@@ -221,8 +239,14 @@ class TemplateDBEnv:
         txn.put(key, canonical_hash, db=self._dbs[DB_TEMPLATES_BY_DIMS])
     
     def iter_templates_by_dims(self, txn, basis_id: int, width: int, gate_count: int) -> Iterator[tuple[int, bytes]]:
-        """Iterate templates by dimension.
+        """Iterate templates by dimension (width, gate_count).
         
+        Args:
+            txn: LMDB read transaction.
+            basis_id: Gate basis ID.
+            width: Circuit width.
+            gate_count: Number of gates.
+
         Yields:
             (template_id, canonical_hash) tuples
         """

@@ -56,12 +56,14 @@ class Circuit:
         self._exclusion_list: None | list[int] = None
 
     def __copy__(self) -> "Circuit":
+        """Create a shallow copy of the circuit."""
         new = Circuit(self._width)
         new._tt = copy(self._tt)
         new._gates = deepcopy(self._gates)
         return new
 
     def __str__(self) -> str:
+        """Return an ASCII diagram of the circuit."""
         qc = QuantumCircuit(self._width)
         for controls, target in self._gates:
             if len(controls) == 0:
@@ -91,6 +93,13 @@ class Circuit:
         return self._width
 
     def tt(self) -> TruthTable:
+        """Compute and return the truth table for this circuit.
+        
+        The result is cached.
+        
+        Returns:
+            TruthTable object representing the circuit's function.
+        """
         if self._tt is None:
             self._tt = TruthTable(self._width)
             for controls, target in self._gates:
@@ -156,6 +165,12 @@ class Circuit:
 
     @inplace
     def cx(self, control: int, target: int, **_) -> "Circuit":
+        """Append a CNOT gate.
+        
+        Args:
+            control: Control wire index.
+            target: Target wire index.
+        """
         assert 0 <= target and target < self._width
         assert 0 <= control and control < self._width
         self._gates.append(([control], target))
@@ -164,6 +179,12 @@ class Circuit:
 
     @inplace
     def mcx(self, controls: list[int], target: int, **_) -> "Circuit":
+        """Append a Multiple-Control Toffoli gate.
+        
+        Args:
+            controls: List of control wire indices.
+            target: Target wire index.
+        """
         assert 0 <= target and target < self._width
         assert all([0 <= cid and cid < self._width for cid in controls])
         controls = sorted(controls)
@@ -438,7 +459,14 @@ class Circuit:
         return equivalents
 
     def empty_line_extensions(self, target_width: int) -> list["Circuit"]:
-        """All ways to add empty (spectator) wires to reach target_width."""
+        """All ways to add empty (spectator) wires to reach target_width.
+        
+        Args:
+            target_width: Desired final width.
+            
+        Returns:
+            List of circuits with new empty lines inserted.
+        """
         lines_to_insert = target_width - self._width
         assert lines_to_insert >= 0
         extensions = []
@@ -450,7 +478,16 @@ class Circuit:
         return extensions
 
     def full_line_extensions(self, target_width: int) -> list["Circuit"]:
-        """All ways to add control wires to reach target_width."""
+        """All ways to add control wires to reach target_width.
+        
+        Adds lines that control every gate in the circuit.
+        
+        Args:
+            target_width: Desired final width.
+            
+        Returns:
+            List of circuits with new control lines inserted.
+        """
         lines_to_insert = target_width - self._width
         assert lines_to_insert >= 0
         extensions = []

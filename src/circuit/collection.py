@@ -141,22 +141,26 @@ class Collection:
         """Load circuits from file and add to this Collection."""
         with open(file_name, 'r') as file:
             for line in file:
-                match line.strip().split(' '):
-                    case ["h", max_width, max_gc]:
-                        assert int(max_width) == self._max_width
-                        assert int(max_gc) == self._max_gate_count
-                    case ["c", width, gc]:
-                        width = int(width)
-                        gc = int(gc)
-                        assert width <= self._max_width
-                        assert gc <= self._max_gate_count
-                        circuit = Circuit(width)
-                        for _ in range(gc):
-                            target, *controls = file.readline().strip().split(' ')
-                            circuit.mcx([int(c) for c in controls], int(target))
-                        self[width][gc].append(circuit)
-                    case ['']:
-                        pass
-                    case _:
-                        pass
+                parts = line.strip().split(' ')
+                if not parts or parts == ['']:
+                    continue
+                
+                cmd = parts[0]
+                if cmd == "h" and len(parts) == 3:
+                    _, max_width, max_gc = parts
+                    assert int(max_width) == self._max_width
+                    assert int(max_gc) == self._max_gate_count
+                elif cmd == "c" and len(parts) == 3:
+                    _, width, gc = parts
+                    width = int(width)
+                    gc = int(gc)
+                    assert width <= self._max_width
+                    assert gc <= self._max_gate_count
+                    circuit = Circuit(width)
+                    for _ in range(gc):
+                        target, *controls = file.readline().strip().split(' ')
+                        circuit.mcx([int(c) for c in controls], int(target))
+                    self[width][gc].append(circuit)
+                else:
+                    pass
         return self

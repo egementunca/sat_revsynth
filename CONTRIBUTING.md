@@ -1,30 +1,39 @@
 # Contributing to SAT RevSynth
 
+Thank you for your interest in contributing!
+
 ## Development Setup
 
-1. Clone and install dependencies:
-   ```bash
-   git clone https://github.com/M4D-A/sat_revsynth.git
-   cd sat_revsynth
-   python -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   pip install black flake8
-   ```
+1.  **Clone and install dependencies:**
+    ```bash
+    git clone https://github.com/M4D-A/sat_revsynth.git
+    cd sat_revsynth
+    python -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    pip install black flake8 pytest
+    ```
 
-2. Run tests:
-   ```bash
-   cd src
-   pytest -v
-   ```
+2.  **Run tests:**
+    ```bash
+    cd src
+    pytest -v
+    ```
 
-## Code Style
+## Development Workflow
 
-- Follow PEP 8 guidelines
-- Use `black` for formatting: `black --line-length 100 src/`
-- Run `flake8` before committing
+1.  **Create a feature branch** from `main`.
+2.  **Write code and tests**. Ensure your code is well-documented with docstrings.
+3.  **Run linting**:
+    ```bash
+    black --line-length 100 src/
+    flake8 src/
+    ```
+4.  **Submit a Pull Request**.
 
 ## Project Structure
+
+For a detailed architecture overview, see [docs/design/architecture.md](docs/design/architecture.md).
 
 - `src/circuit/`: Circuit representation and operations
 - `src/sat/`: CNF encoding and solver interface
@@ -32,15 +41,8 @@
 - `src/database/`: Canonicalization and storage
 - `src/gates/`: Gate set definitions
 
-## Adding Tests
-
-- Place tests in `*_test.py` files alongside the module
-- Use pytest fixtures for common setup
-- Test across multiple solvers when relevant
-
 ## Pull Request Process
 
-1. Create a feature branch
-2. Add tests for new functionality
-3. Ensure all tests pass
-4. Submit PR with clear description
+1.  Describe your changes clearly in the PR description.
+2.  Link to any related issues.
+3.  Ensure all CI checks pass.

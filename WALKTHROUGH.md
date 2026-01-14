@@ -21,7 +21,13 @@ To scale discovery to millions of templates, we optimized the pipeline for high-
     - `--workers N` for precise resource allocation.
     - `scripts/benchmark_cluster.py` for automated performance tuning.
 
-### 4. Correctness Verification
+### 4. Cluster Job Outputs (LMDB Artifacts)
+- Each cluster job writes to its own LMDB environment, e.g. `data/jobs/w{W}_gc{GC}.lmdb`.
+- An LMDB environment is a directory containing `data.mdb` and `lock.mdb`.
+- Jobs copy per-run results from scratch into `data/jobs/`, then `cluster/merge_jobs.py` merges into `data/collection.lmdb`.
+- If `--skip-witnesses` is passed to `scripts/explore_staggered.py`, the LMDB will contain templates only (witness DBs empty).
+
+### 5. Correctness Verification
 - Confirmed that the synthesis loop is **exhaustive**:
     - Synthesizer finds *all* chemical variants (approx. 6 per family).
     - `TemplateStore` deduplicates them to a single canonical representative.
@@ -39,6 +45,11 @@ The database uses a single LMDB environment with **6 named databases**:
 | `templates_by_dims` | basis\|width\|GC\|id | hash | Enumerating templates by size |
 | `witnesses_by_hash` | basis\|width\|len\|hash | WitnessRecord | Deduplicated witness storage |
 | `witness_prefilter` | basis\|width\|token | [witness_id...] | Fast "maybe hit" detection |
+
+Notes:
+- The LMDB environment path is a directory (not a single file) containing `data.mdb` and `lock.mdb`.
+- `meta` stores `schema_version`, `canonicalization_version`, and basis name.
+- Keys are packed (e.g., `basis_id|width|gate_count|hash`) for compact exact lookups.
 
 ## 2. Key Modules
 
@@ -71,6 +82,7 @@ Implements cheap template expansion:
 - **Permute**: Relabel wires (up to 24 permutations by default).
 - **Rotate**: Cyclic rotation of gates.
 - **Swap DFS**: Explore variants via commuting gate swaps.
+Unroll behavior is configurable via `UnrollConfig` (swap DFS budget, max permutations).
 
 ### `src/database/witnesses.py`
 Extracts `floor(GC/2) + 1` length prefixes as witnesses and builds a k-gram token prefilter for fast scanning.

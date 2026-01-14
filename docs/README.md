@@ -12,6 +12,7 @@ Welcome to the documentation for **SAT RevSynth**, a framework for the exact syn
 
 - [**Architecture**](design/architecture.md): System design, SAT encoding details, and database schema.
 - [**API Reference**](api/reference.md): Code-level documentation for key modules.
+- [**LMDB Walkthrough**](../WALKTHROUGH.md): ECA57 template DB, unrolling, witnesses, and cluster artifacts.
 
 ## Project Links
 

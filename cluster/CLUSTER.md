@@ -17,6 +17,11 @@ qsub -v WIDTH=4,GC=4 cluster/explore_single.sh
 
 # If test passes, submit all jobs
 python cluster/submit_exploration.py
+
+# After jobs complete, merge and distill witnesses
+python cluster/merge_jobs.py
+qsub cluster/distill_witnesses.sh
+# Or: python cluster/submit_distillation.py
 ```
 
 ## Setup
@@ -50,6 +55,13 @@ python cluster/submit_exploration.py --width 4 --gc 8   # Single job
 qsub -v WIDTH=4,GC=8,SOLVER=glucose4 cluster/explore_single.sh
 ```
 
+### Witness Distillation (After Merge)
+```bash
+qsub cluster/distill_witnesses.sh
+qsub -v DB_PATH=data/custom.lmdb cluster/distill_witnesses.sh
+python cluster/submit_distillation.py --db data/custom.lmdb
+```
+
 ### Monitor Jobs
 ```bash
 qstat -u $USER                    # List your jobs
@@ -59,13 +71,15 @@ tail -f logs/eca57_w4g8.*.log     # Follow log
 
 ## Resource Estimates
 
-| Width | GC | Memory (est.) | Walltime |
-|-------|----|---------------|----------|
-| 4     | 4   | 16-32 GB | 4-12h |
-| 4     | 7   | 48-64 GB | 24-48h |
-| 4     | 9   | 80-96 GB | 72-96h |
-| 5     | 6   | 48-96 GB | 24-72h |
-| 6-8   | 4   | 32-96 GB | 24-96h |
+| Width | GC | Memory (est.) |
+|-------|----|---------------|
+| 4     | 4   | 16-32 GB |
+| 4     | 7   | 48-64 GB |
+| 4     | 9   | 80-96 GB |
+| 5     | 6   | 48-96 GB |
+| 6-8   | 4   | 32-96 GB |
+
+**No time limits** - exploration and distillation jobs run until completion.
 
 **Default: 4-way Racing** - `kissat-sc2024+glucose4+cadical153+maplesat`
 
@@ -91,6 +105,11 @@ Each job writes to `data/jobs/w{W}_gc{GC}.lmdb` (avoids concurrent write conflic
 python cluster/merge_jobs.py                    # Merge all
 python cluster/merge_jobs.py --dry-run          # Preview only
 
+# Distill witnesses from merged database:
+qsub cluster/distill_witnesses.sh
+qsub -v DB_PATH=data/custom.lmdb cluster/distill_witnesses.sh
+python cluster/submit_distillation.py --db data/custom.lmdb
+
 # Check final database stats:
 python -c "from src.database.lmdb_env import TemplateDBEnv; print(TemplateDBEnv('data/collection.lmdb').stats())"
 ```
@@ -100,8 +119,8 @@ python -c "from src.database.lmdb_env import TemplateDBEnv; print(TemplateDBEnv(
 ### Job runs out of memory
 Increase `mem_per_core` in `submit_exploration.py` RESOURCE_ESTIMATES.
 
-### Job times out
-Increase walltime in RESOURCE_ESTIMATES or submit with `--walltime`.
+### Job runs longer than expected
+Jobs run without time limits; check logs for solver progress or stalls.
 
 ### Results not saved
 Check that `/scratch/$USER` exists and has space. Results copy back on job completion.

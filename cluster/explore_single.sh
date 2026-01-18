@@ -1,12 +1,12 @@
 #!/bin/bash
 #$ -N eca57_explore
 #$ -pe omp 8
-#$ -l h_rt=48:00:00
 #$ -l mem_per_core=8G
 #$ -j y
 #$ -V
 #$ -cwd
 #$ -o logs/$JOB_NAME.$JOB_ID.log
+# NOTE: NO h_rt set - job runs until completion
 
 # ECA57 Template Exploration - Single (Width, GC) Job
 # Designed for high-memory exploration of large template spaces

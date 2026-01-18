@@ -20,54 +20,68 @@ from typing import List, Tuple
 
 
 # Memory requirements per (width, gc) - estimated from empirical runs
-# Format: (width, gc): (cores, mem_per_core_gb, walltime_hours)
+# Format: (width, gc): (cores, mem_per_core_gb)
 RESOURCE_ESTIMATES = {
-    # Width 4: Moderate memory
-    (4, 4): (4, 4, 4),
-    (4, 5): (6, 4, 8),
-    (4, 6): (8, 4, 12),
-    (4, 7): (8, 6, 24),
-    (4, 8): (8, 8, 48),     # ~64GB
-    (4, 9): (8, 8, 72),     # ~64GB (Capped for standard queue)
-    (4, 10): (8, 8, 72),    # ~64GB (Capped for standard queue)
+    # Width 4: min_gc=4 (w4g2, w4g3 = UNSAT)
+    (4, 4): (4, 4),
+    (4, 5): (6, 4),
+    (4, 6): (8, 4),
+    (4, 7): (8, 6),
+    (4, 8): (8, 8),     # ~64GB
+    (4, 9): (8, 8),     # ~64GB (Capped for standard queue)
+    (4, 10): (8, 8),    # ~64GB (Capped for standard queue)
     
-    # Width 5: Higher memory
-    (5, 4): (4, 4, 4),
-    (5, 5): (8, 4, 8),
-    (5, 6): (8, 6, 24),
-    (5, 7): (8, 8, 48),
-    (5, 8): (8, 8, 72),     # ~64GB (Capped for standard queue)
+    # Width 5: min_gc=4 (w5g2, w5g3 = UNSAT)
+    (5, 4): (4, 4),
+    (5, 5): (8, 4),
+    (5, 6): (8, 6),
+    (5, 7): (8, 8),
+    (5, 8): (8, 8),     # ~64GB (Capped for standard queue)
     
-    # Width 6: Very high memory
-    (6, 4): (8, 4, 8),
-    (6, 5): (8, 6, 24),
-    (6, 6): (8, 8, 48),
-    (6, 7): (8, 8, 72),     # ~64GB (Capped for standard queue)
+    # Width 6: min_gc=4 (w6g2, w6g3 = UNSAT)
+    (6, 4): (8, 4),
+    (6, 5): (8, 6),
+    (6, 6): (8, 8),
+    (6, 7): (8, 8),     # ~64GB (Capped for standard queue)
     
-    # Width 7-8: Maximum memory
-    (7, 4): (8, 6, 24),
-    (7, 5): (8, 8, 48),
-    (7, 6): (8, 8, 72),     # ~64GB (Capped for standard queue)
-    (8, 4): (8, 6, 24),
-    (8, 5): (8, 8, 48),
-    (8, 6): (8, 8, 72),     # ~64GB (Capped for standard queue)
+    # Width 7: min_gc=6 (w7g2-g5 = UNSAT - no identity circuits exist)
+    (7, 6): (8, 8),     # ~64GB (Capped for standard queue)
+    
+    # Width 8: min_gc=6 (estimated)
+    (8, 6): (8, 8),     # ~64GB (Capped for standard queue)
 }
 
 # Default resources for unlisted combinations
-DEFAULT_RESOURCES = (8, 8, 48)  # 8 cores, 8GB/core, 48 hours
+DEFAULT_RESOURCES = (8, 8)  # 8 cores, 8GB/core
+
+# From explore_staggered.py - minimum viable gate counts
+MIN_GC_BY_WIDTH = {
+    3: 2,   # Empirically verified
+    4: 4,   # w4g2, w4g3 = UNSAT
+    5: 4,   # w5g2, w5g3 = UNSAT
+    6: 4,   # w6g2, w6g3 = UNSAT
+    7: 6,   # w7g2-g5 = UNSAT
+    8: 6,   # Estimated
+    9: 6    # Estimated
+}
+MAX_GC_BY_WIDTH = {
+    3: 12,
+    4: 10,
+    5: 8,
+    6: 7,
+    7: 6,
+    8: 6,
+    9: 6
+}
 
 
 def get_exploration_targets(min_width: int, max_width: int) -> List[Tuple[int, int]]:
     """Get list of (width, gc) targets to explore."""
-    # From explore_staggered.py
-    MAX_GC_BY_WIDTH = {
-        3: 12, 4: 10, 5: 8, 6: 7, 7: 6, 8: 6, 9: 6
-    }
-    
     targets = []
     for width in range(min_width, max_width + 1):
+        min_gc = MIN_GC_BY_WIDTH.get(width, 2)
         max_gc = MAX_GC_BY_WIDTH.get(width, 6)
-        for gc in range(2, max_gc + 1):
+        for gc in range(min_gc, max_gc + 1):
             targets.append((width, gc))
     
     return targets
@@ -76,7 +90,7 @@ def get_exploration_targets(min_width: int, max_width: int) -> List[Tuple[int, i
 def submit_job(
     width: int,
     gc: int,
-    solver: str = "glucose4",
+    solver: str = "kissat-sc2024+glucose4+cadical153+maplesat",
     skip_witnesses: bool = True,
     workers: int = 7,
     dry_run: bool = False
@@ -87,8 +101,7 @@ def submit_job(
     sge_script = script_dir / "explore_single.sh"
     
     # Get resource estimates
-    cores, mem_gb, hours = RESOURCE_ESTIMATES.get((width, gc), DEFAULT_RESOURCES)
-    walltime = f"{hours}:00:00"
+    cores, mem_gb = RESOURCE_ESTIMATES.get((width, gc), DEFAULT_RESOURCES)
     
     # Build qsub command
     env_vars = f"WIDTH={width},GC={gc},SOLVER={solver},SKIP_WITNESSES={'true' if skip_witnesses else 'false'},WORKERS={workers}"
@@ -96,7 +109,6 @@ def submit_job(
     cmd = [
         "qsub",
         "-v", env_vars,
-        "-l", f"h_rt={walltime}",
         "-l", f"mem_per_core={mem_gb}G",
         "-pe", "omp", str(cores),
         "-N", f"eca57_w{width}g{gc}",
@@ -105,7 +117,7 @@ def submit_job(
     
     if dry_run:
         total_mem = cores * mem_gb
-        print(f"[DRY RUN] W={width} GC={gc} | {cores} cores x {mem_gb}GB = {total_mem}GB | {hours}h")
+        print(f"[DRY RUN] W={width} GC={gc} | {cores} cores x {mem_gb}GB = {total_mem}GB")
         print(f"          {' '.join(cmd)}")
         return None
     
@@ -151,9 +163,9 @@ def main():
         targets = [(args.width, args.gc)]
     elif args.width:
         # All GCs for specified width
-        MAX_GC_BY_WIDTH = {3: 12, 4: 10, 5: 8, 6: 7, 7: 6, 8: 6}
+        min_gc = MIN_GC_BY_WIDTH.get(args.width, 2)
         max_gc = MAX_GC_BY_WIDTH.get(args.width, 6)
-        targets = [(args.width, gc) for gc in range(2, max_gc + 1)]
+        targets = [(args.width, gc) for gc in range(min_gc, max_gc + 1)]
     else:
         targets = get_exploration_targets(args.min_width, args.max_width)
     

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
-from sat.cnf import CNF, Literal
+from sat.cnf import Literal
 from sat.solver import Solver
 from synthesizers.eca57_synthesizer import ECA57Synthesizer
 
@@ -17,104 +17,135 @@ if TYPE_CHECKING:
 
 class ECA57SkeletonSynthesizer(ECA57Synthesizer):
     """Synthesizer for ECA57 circuits with Skeleton Graph constraints.
-    
+
     This synthesizer adds constraints to enforce a specific structure in the
     circuit's dependency graph (skeleton graph).
-    
+
     A "Collision" between gate i and gate j exists if they do not commute.
     For ECA57 gates (t, c1, c2), they collide if:
       target(i) in {ctrl1(j), ctrl2(j)} OR target(j) in {ctrl1(i), ctrl2(i)}
-      
+
     Args:
         output: Target truth table.
         gate_count: Exact number of ECA57 gates.
         solver: SAT solver to use.
+        chain_length: Number of adjacent collision edges to enforce in a
+            contiguous block. None enforces collisions for all adjacent pairs.
+        avoid_adjacent_identical: If True, forbid identical adjacent gates
+            (prevents immediate cancellation g*g).
     """
-    
-    def __init__(self, output: "TruthTable", gate_count: int, solver: Solver, 
-                 disable_empty_lines: bool = True):
+
+    def __init__(
+        self,
+        output: "TruthTable",
+        gate_count: int,
+        solver: Solver,
+        disable_empty_lines: bool = True,
+        chain_length: Optional[int] = None,
+        avoid_adjacent_identical: bool = True,
+    ):
         super().__init__(output, gate_count, solver, disable_empty_lines)
-        
+
         # Add skeleton constraints
-        self._add_skeleton_constraints()
-        
-    def _add_skeleton_constraints(self):
-        """Add constraints for skeleton graph structure.
-        
-        Currently enforces a simple "Chain" structure:
-        Gate i and Gate i+1 MUST collide for all i.
-        """
-        cnf = self._cnf
+        self._add_skeleton_constraints(chain_length, avoid_adjacent_identical)
+
+    def _add_skeleton_constraints(
+        self,
+        chain_length: Optional[int],
+        avoid_adjacent_identical: bool,
+    ) -> None:
+        """Add constraints for skeleton graph structure."""
         gates = self._gate_count
-        width = self._width
-        
-        # We need collision variables for adjacent gates
-        # collision_{i}_{i+1}
-        
+
+        if gates < 2:
+            return
+
+        adj_collisions = []
         for g in range(gates - 1):
             next_g = g + 1
-            
-            # Create collision variable: true if g and next_g collide
-            # Internal vars must start with Uppercase
-            collision_var = cnf.reserve_name(f"Col_{g}_{next_g}", True)
-            
-            # A collision happens if:
-            # 1. T_g == C1_next_g
-            # 2. T_g == C2_next_g
-            # 3. T_next_g == C1_g
-            # 4. T_next_g == C2_g
-            
-            # We build these conditions. Each is an OR over wires.
-            conditions = []
-            
-            # 1. T_g == C1_next
-            # Exists w such that t_{w}_{g} AND c1_{w}_{next}
-            t_g_c1_next_vars = []
-            for w in range(width):
-                # temp = t_g_w AND c1_next_w
-                temp = cnf.reserve_name(f"Match_t{g}c1{next_g}_{w}", True)
-                cnf.equals_and(temp, [self._targets[g][w], self._ctrl1s[next_g][w]])
-                t_g_c1_next_vars.append(temp)
-            
-            cond1 = cnf.reserve_name(f"Cond_t{g}c1{next_g}", True)
-            cnf.equals_or(cond1, t_g_c1_next_vars)
-            conditions.append(cond1)
-            
-            # 2. T_g == C2_next
-            t_g_c2_next_vars = []
-            for w in range(width):
-                temp = cnf.reserve_name(f"Match_t{g}c2{next_g}_{w}", True)
-                cnf.equals_and(temp, [self._targets[g][w], self._ctrl2s[next_g][w]])
-                t_g_c2_next_vars.append(temp)
-                
-            cond2 = cnf.reserve_name(f"Cond_t{g}c2{next_g}", True)
-            cnf.equals_or(cond2, t_g_c2_next_vars)
-            conditions.append(cond2)
-            
-            # 3. T_next == C1_g
-            t_next_c1_g_vars = []
-            for w in range(width):
-                temp = cnf.reserve_name(f"Match_t{next_g}c1{g}_{w}", True)
-                cnf.equals_and(temp, [self._targets[next_g][w], self._ctrl1s[g][w]])
-                t_next_c1_g_vars.append(temp)
-                
-            cond3 = cnf.reserve_name(f"Cond_t{next_g}c1{g}", True)
-            cnf.equals_or(cond3, t_next_c1_g_vars)
-            conditions.append(cond3)
-            
-            # 4. T_next == C2_g
-            t_next_c2_g_vars = []
-            for w in range(width):
-                temp = cnf.reserve_name(f"Match_t{next_g}c2{g}_{w}", True)
-                cnf.equals_and(temp, [self._targets[next_g][w], self._ctrl2s[g][w]])
-                t_next_c2_g_vars.append(temp)
-                
-            cond4 = cnf.reserve_name(f"Cond_t{next_g}c2{g}", True)
-            cnf.equals_or(cond4, t_next_c2_g_vars)
-            conditions.append(cond4)
-            
-            # collisions_var <=> OR(cond1, cond2, cond3, cond4)
-            cnf.equals_or(collision_var, conditions)
-            
-            # ENFORCE THE CHAIN: collision must be true
-            cnf.set_literal(collision_var, True)
+            adj_collisions.append(self._collision_var(g, next_g))
+            if avoid_adjacent_identical:
+                self._forbid_adjacent_identical(g, next_g)
+
+        self._enforce_chain(adj_collisions, chain_length)
+
+    def _collision_var(self, g: int, next_g: int) -> Literal:
+        """Create collision variable for gate g and next_g."""
+        cnf = self._cnf
+
+        cond1 = self._match_or(
+            f"Match_t{g}c1{next_g}",
+            self._targets[g],
+            self._ctrl1s[next_g],
+        )
+        cond2 = self._match_or(
+            f"Match_t{g}c2{next_g}",
+            self._targets[g],
+            self._ctrl2s[next_g],
+        )
+        cond3 = self._match_or(
+            f"Match_t{next_g}c1{g}",
+            self._targets[next_g],
+            self._ctrl1s[g],
+        )
+        cond4 = self._match_or(
+            f"Match_t{next_g}c2{g}",
+            self._targets[next_g],
+            self._ctrl2s[g],
+        )
+
+        collision_var = cnf.reserve_name(f"Col_{g}_{next_g}", True)
+        cnf.equals_or(collision_var, [cond1, cond2, cond3, cond4])
+        return collision_var
+
+    def _match_or(self, prefix: str, vars_a: list[Literal], vars_b: list[Literal]) -> Literal:
+        """Return a literal representing OR_w (vars_a[w] AND vars_b[w])."""
+        cnf = self._cnf
+        width = self._width
+
+        matches = []
+        for w in range(width):
+            temp = cnf.reserve_name(f"{prefix}_{w}", True)
+            cnf.equals_and(temp, [vars_a[w], vars_b[w]])
+            matches.append(temp)
+
+        match_or = cnf.reserve_name(prefix, True)
+        cnf.equals_or(match_or, matches)
+        return match_or
+
+    def _forbid_adjacent_identical(self, g: int, next_g: int) -> None:
+        """Forbid gate g and next_g from being identical."""
+        cnf = self._cnf
+
+        t_eq = self._match_or(f"EqT_{g}_{next_g}", self._targets[g], self._targets[next_g])
+        c1_eq = self._match_or(f"EqC1_{g}_{next_g}", self._ctrl1s[g], self._ctrl1s[next_g])
+        c2_eq = self._match_or(f"EqC2_{g}_{next_g}", self._ctrl2s[g], self._ctrl2s[next_g])
+
+        cnf._cnf.append([-t_eq.value(), -c1_eq.value(), -c2_eq.value()])
+
+    def _enforce_chain(
+        self,
+        adj_collisions: list[Literal],
+        chain_length: Optional[int],
+    ) -> None:
+        """Enforce a contiguous chain of adjacent collisions."""
+        cnf = self._cnf
+        max_edges = len(adj_collisions)
+
+        if chain_length is None or chain_length >= max_edges:
+            for collision_var in adj_collisions:
+                cnf.set_literal(collision_var, True)
+            return
+
+        if chain_length <= 0:
+            return
+
+        max_start = max_edges - chain_length
+        chain_starts = []
+        for start in range(max_start + 1):
+            chain_var = cnf.reserve_name(f"Chain_{start}_{chain_length}", True)
+            chain_starts.append(chain_var)
+            for idx in range(start, start + chain_length):
+                cnf._cnf.append([-chain_var.value(), adj_collisions[idx].value()])
+
+        cnf.atleast(chain_starts, 1)

@@ -45,6 +45,19 @@ MAX_GC_BY_WIDTH = {
     9: 6
 }
 
+# Minimum gate counts where identity circuits exist (all wires used)
+# Below these values, no identity circuits are possible for the given width
+MIN_GC_BY_WIDTH = {
+    3: 2,   # Empirically verified
+    4: 4,   # w4g2, w4g3 = UNSAT
+    5: 4,   # w5g2, w5g3 = UNSAT  
+    6: 4,   # w6g2, w6g3 = UNSAT
+    7: 6,   # w7g2-g5 = UNSAT
+    8: 6,   # Estimated (similar pattern)
+    9: 6    # Estimated
+}
+
+
 def get_default_workers():
     """Get default worker count (all cores - 1)."""
     return max(1, multiprocessing.cpu_count() - 1)
@@ -104,14 +117,15 @@ def explore_staggered(db_path: str, max_width_limit: int, solver_inputs: str, sk
     start_total = time.time()
     
     for width in range(min_width_limit, max_width_limit + 1):
-        # Determine depth limit for this width
+        # Determine depth limits for this width
+        min_gc = MIN_GC_BY_WIDTH.get(width, 2)
         max_gc = MAX_GC_BY_WIDTH.get(width, 6)
         
         # If single_gc is specified, only run that gc
         if single_gc is not None:
-            gc_range = [single_gc] if 2 <= single_gc <= max_gc else []
+            gc_range = [single_gc] if min_gc <= single_gc <= max_gc else []
         else:
-            gc_range = range(2, max_gc + 1)
+            gc_range = range(min_gc, max_gc + 1)
         
         print(f"\n>>> Exploring Width {width} (GC range: {list(gc_range)})")
         

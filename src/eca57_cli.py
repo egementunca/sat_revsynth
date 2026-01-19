@@ -4,6 +4,7 @@
 Usage:
     python eca57_cli.py benchmark              # Benchmark SAT solvers
     python eca57_cli.py synth 3 4              # Synthesize width=3, gc=4
+    python eca57_cli.py synth-skeleton 4 8     # One circuit w/ skeleton constraints
     python eca57_cli.py collection 4 6 -o out  # Full collection synthesis
 """
 from __future__ import annotations
@@ -92,6 +93,40 @@ def cmd_synth(args):
         for i, circ in enumerate(list(dg)[:3]):
             print(f"\n--- Circuit {i+1} ---")
             print(circ)
+
+
+def cmd_synth_skeleton(args):
+    """Synthesize a single identity circuit with skeleton constraints."""
+    from truth_table.truth_table import TruthTable
+    from sat.solver import Solver
+    from synthesizers.eca57_skeleton_synthesizer import ECA57SkeletonSynthesizer
+
+    print(
+        "Synthesizing ECA57 identity circuit with skeleton constraints: "
+        f"width={args.width}, gc={args.gc}"
+    )
+    print(f"Solver: {args.solver}")
+    if args.chain_length is not None:
+        print(f"Min adjacent collision edges: {args.chain_length}")
+    if args.allow_adjacent_identical:
+        print("Adjacent identical gates allowed")
+
+    tt = TruthTable(args.width)
+    solver = Solver(args.solver)
+    synth = ECA57SkeletonSynthesizer(
+        tt,
+        gate_count=args.gc,
+        solver=solver,
+        chain_length=args.chain_length,
+        avoid_adjacent_identical=not args.allow_adjacent_identical,
+    )
+    circuit = synth.solve()
+
+    if circuit is None:
+        print("UNSAT: no circuit found with the requested constraints")
+        return
+
+    print(circuit)
 
 
 def cmd_collection(args):
@@ -320,7 +355,25 @@ def main():
     synth.add_argument("-s", "--solver", default="glucose4", help="SAT solver")
     synth.add_argument("-o", "--output", help="Output file path")
     synth.add_argument("-v", "--verbose", action="store_true", help="Show sample circuits")
-    
+
+    synth_skel = subparsers.add_parser(
+        "synth-skeleton",
+        help="Synthesize one circuit with skeleton constraints",
+    )
+    synth_skel.add_argument("width", type=int, help="Number of wires")
+    synth_skel.add_argument("gc", type=int, help="Number of gates")
+    synth_skel.add_argument("-s", "--solver", default="glucose4", help="SAT solver")
+    synth_skel.add_argument(
+        "--chain-length",
+        type=int,
+        help="Minimum adjacent collision edges (default: all)",
+    )
+    synth_skel.add_argument(
+        "--allow-adjacent-identical",
+        action="store_true",
+        help="Allow adjacent identical gates (enables immediate cancellation)",
+    )
+
     # Collection command
     coll = subparsers.add_parser("collection", help="Synthesize full collection")
     coll.add_argument("max_width", type=int, help="Maximum width")
@@ -358,6 +411,8 @@ def main():
         cmd_benchmark(args)
     elif args.command == "synth":
         cmd_synth(args)
+    elif args.command == "synth-skeleton":
+        cmd_synth_skeleton(args)
     elif args.command == "collection":
         cmd_collection(args)
     elif args.command == "distill":
@@ -372,4 +427,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

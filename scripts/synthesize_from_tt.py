@@ -11,20 +11,75 @@ from truth_table.truth_table import TruthTable
 from synthesizers.eca57_synthesizer import ECA57Synthesizer
 from sat.solver import Solver
 
+import concurrent.futures
+import threading
+
+def solve_with_racer(input_tt, gate_count, solvers_list):
+    """
+    Race multiple solvers to find a circuit with gate_count gates.
+    Returns the circuit if found, or None.
+    """
+    result_circuit = None
+    stop_event = threading.Event()
+    
+    def _run_solver(solver_name):
+        nonlocal result_circuit
+        if stop_event.is_set():
+            return None
+            
+        try:
+            solver = Solver(solver_name)
+            # Create a new synthesizer instance for this thread
+            # Assuming ECA57Synthesizer is thread-safe or lightweight enough
+            # Make a copy of truth table if needed, but it seems immutable enough here
+            synth = ECA57Synthesizer(input_tt, gate_count, solver)
+            
+            # Check stop event periodically? 
+            # The solve() method blocks, so we can't easily interrupt it 
+            # without modifying the synthesizer/solver 
+            # but we can check immediately after return
+            
+            circuit = synth.solve()
+            
+            if circuit and not stop_event.is_set():
+                result_circuit = circuit
+                stop_event.set() # Signal other threads to stop (lazy cancellation)
+                return circuit
+        except Exception:
+            pass
+        return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(solvers_list)) as executor:
+        futures = {executor.submit(_run_solver, name): name for name in solvers_list}
+        
+        # Wait for first success
+        for future in concurrent.futures.as_completed(futures):
+            if stop_event.is_set():
+                # We have a winner, try to cancel others (best effort)
+                for f in futures:
+                    f.cancel()
+                break
+                
+    return result_circuit
+
 def main():
     try:
         # Read JSON from stdin
         input_data = json.load(sys.stdin)
         
         num_inputs = input_data["num_inputs"]
-        output_cols = input_data["output_truth_tables"] # List of strings, one per wire
+        output_cols = input_data["output_truth_tables"] 
         current_num_gates = input_data["current_num_gates"]
         time_limit = input_data.get("time_limit", 10)
-        solver_name = input_data.get("solver_name", "cadical153")
         
+        # Determine solvers to race
+        # Default portfolio for racing
+        default_racers = ["cadical153", "glucose4", "minisat22"]
+        
+        explicit_solver = input_data.get("solver_name")
+        solvers_to_use = [explicit_solver] if explicit_solver else default_racers
+
         # Transpose columns to rows for TruthTable constructor
-        # output_cols[i] is the string of bits for wire i
-        # rows[r] should be [wire0, wire1, ...] for row r
         num_rows = len(output_cols[0])
         rows = []
         for r in range(num_rows):
@@ -36,17 +91,7 @@ def main():
             
         tt = TruthTable(num_inputs, bits=rows)
         
-        # Try to find a shorter circuit
-        # We iterate from 0 to current_num_gates - 1
-        # (Though 0 is trivial)
-        
-        found_solution = None
-        
-        # Optimization: start checking from lower bound?
-        # For now, just linear scan.
-        
         # Check if 0 gates works (identity functionality)
-        # TruthTable(N) creates identity
         id_tt = TruthTable(num_inputs)
         if tt == id_tt:
              print(json.dumps({
@@ -56,21 +101,13 @@ def main():
              return
 
         for gc in range(1, current_num_gates):
-            # Check timeout? 
-            # We rely on solver internal check or loop break
-            
-            # Instantiate solver
-            solver = Solver(solver_name)
-            synth = ECA57Synthesizer(tt, gc, solver)
-            
-            # Solve
-            circuit = synth.solve()
+            # Use racing strategy
+            circuit = solve_with_racer(tt, gc, solvers_to_use)
             
             if circuit:
                 # Found a shorter circuit!
                 gates = []
                 for g in circuit.gates():
-                    # g is [t, c1, c2]
                     gates.append(list(g))
                 
                 print(json.dumps({

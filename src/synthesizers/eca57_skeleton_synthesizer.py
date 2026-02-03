@@ -67,6 +67,12 @@ class ECA57SkeletonSynthesizer(ECA57Synthesizer):
             if avoid_adjacent_identical:
                 self._forbid_adjacent_identical(g, next_g)
 
+        # Also handle wrap-around pair (last gate, first gate) for cyclic identity circuits.
+        # This is important because rotations can make the last and first gates adjacent,
+        # creating consecutive identical gates if not forbidden.
+        if avoid_adjacent_identical:
+            self._forbid_adjacent_identical(gates - 1, 0)
+
         self._enforce_chain(adj_collisions, chain_length)
 
     def _collision_var(self, g: int, next_g: int) -> Literal:

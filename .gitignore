@@ -158,3 +158,8 @@ benchmark_7_17_v2/
 # Data
 data/
 *.lmdb
+
+# Generated artifacts
+generated_skeletons/
+skeleton_identity_db/
+eca57_viz_demo.png

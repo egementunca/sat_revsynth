@@ -300,19 +300,19 @@ def cmd_build_witnesses(args):
     from database.basis import ECA57Basis
     from database.templates import TemplateStore
     from database.witnesses import WitnessStore
-    
+
     print(f"Building witnesses from database: {args.db}")
     print(f"Max width: {args.max_width}, Max GC: {args.max_gc}")
     print("=" * 60)
-    
+
     env = TemplateDBEnv(args.db)
     basis = ECA57Basis()
     template_store = TemplateStore(env, basis)
     witness_store = WitnessStore(env, basis)
-    
+
     total_inserted = 0
     total_duplicates = 0
-    
+
     for width in range(3, args.max_width + 1):
         for gc in range(2, args.max_gc + 1):
             inserted = 0
@@ -322,16 +322,204 @@ def cmd_build_witnesses(args):
                     inserted += 1
                 else:
                     total_duplicates += 1
-            
+
             total_inserted += inserted
             if inserted > 0:
                 print(f"  [{width},{gc}]: {inserted} witnesses")
-    
+
     print("=" * 60)
     print(f"Total witnesses: {total_inserted}")
     print(f"Duplicates skipped: {total_duplicates}")
-    
+
     env.close()
+
+
+def cmd_skeleton_chain(args):
+    """Synthesize skeleton chain and optionally unroll with limits."""
+    from synthesizers.skeleton_chain_api import (
+        synthesize_skeleton_chain,
+        limited_unroll,
+        verify_skeleton_chain,
+        estimate_unroll_size,
+    )
+
+    print("=" * 70)
+    print(f"Skeleton Chain Synthesis: width={args.width}, gates={args.gates}")
+    print(f"Solver: {args.solver}")
+    if args.chain_length:
+        print(f"Chain length constraint: {args.chain_length}")
+    print("=" * 70)
+
+    # Synthesize skeleton chain
+    print("\n[1/3] Synthesizing skeleton chain...")
+    start = time.time()
+    skeleton = synthesize_skeleton_chain(
+        wires=args.width,
+        gates=args.gates,
+        chain_length=args.chain_length,
+        solver_name=args.solver,
+        avoid_adjacent_identical=not args.allow_adjacent_identical,
+    )
+    synth_time = time.time() - start
+
+    if skeleton is None:
+        print(f"❌ UNSAT: No skeleton chain found ({synth_time:.2f}s)")
+        return
+
+    print(f"✓ Found skeleton chain ({synth_time:.2f}s)")
+
+    # Verify it's a skeleton
+    print("\n[2/3] Verifying skeleton properties...")
+    is_skeleton = verify_skeleton_chain(skeleton)
+    is_identity = skeleton.is_identity()
+
+    if is_skeleton and is_identity:
+        print("✓ Verified: All adjacent gates collide")
+        print("✓ Verified: Circuit implements identity")
+    else:
+        if not is_skeleton:
+            print("❌ WARNING: Not all adjacent gates collide")
+        if not is_identity:
+            print("❌ WARNING: Circuit does not implement identity")
+
+    # Show circuit
+    if args.show_circuit:
+        print("\nSkeleton circuit:")
+        print(skeleton)
+
+    # Estimate unroll size
+    if args.estimate or args.unroll:
+        print("\n[3/3] Analyzing equivalence class size...")
+        est = estimate_unroll_size(args.width, args.gates, is_skeleton=True)
+        print(f"  Rotations: ~{est['rotations']}")
+        print(f"  Mirror: {est['mirror']}×")
+        print(f"  Total permutations: {est['permutations']:,}")
+        print(f"  Estimated total (full unroll): {est['total_estimate']:,}")
+        print(f"  Recommended max_permutations: {est['recommended_max_permutations']}")
+
+        if not est['is_feasible_full_unroll']:
+            print("  ⚠ Warning: Full unroll would generate too many circuits!")
+
+    # Perform limited unroll if requested
+    if args.unroll:
+        print(f"\nGenerating up to {args.max_circuits} equivalent circuits...")
+        start = time.time()
+
+        variants = limited_unroll(
+            skeleton,
+            max_circuits=args.max_circuits,
+            max_permutations=args.max_permutations,
+            use_skeleton_mode=True,  # Fast path for skeletons
+        )
+
+        unroll_time = time.time() - start
+        print(f"✓ Generated {len(variants):,} circuits ({unroll_time:.2f}s)")
+
+        # Save if output specified
+        if args.output:
+            from pathlib import Path
+            import json
+
+            output_path = Path(args.output)
+
+            # Save circuits as JSON
+            data = {
+                "width": args.width,
+                "gates": args.gates,
+                "skeleton": {
+                    "gates": [
+                        {"target": g.target, "ctrl1": g.ctrl1, "ctrl2": g.ctrl2}
+                        for g in skeleton.gates()
+                    ]
+                },
+                "variants_count": len(variants),
+                "variants": [
+                    {
+                        "gates": [
+                            {"target": g.target, "ctrl1": g.ctrl1, "ctrl2": g.ctrl2}
+                            for g in v.gates()
+                        ]
+                    }
+                    for v in variants[:args.save_limit]  # Limit saved variants
+                ],
+            }
+
+            with open(output_path, "w") as f:
+                json.dump(data, f, indent=2)
+
+            print(f"Saved {min(len(variants), args.save_limit)} circuits to {output_path}")
+
+    print("\n" + "=" * 70)
+    print("Done!")
+
+
+def cmd_build_skeleton_db(args):
+    """Build skeleton chain database indexed by taxonomy."""
+    from database.skeleton_db import (
+        SkeletonDBBuilder,
+        SkeletonDBConfig,
+        count_collision_taxonomies,
+    )
+
+    print("=" * 70)
+    print("SKELETON CHAIN DATABASE BUILDER")
+    print("=" * 70)
+
+    print(f"\nConfiguration:")
+    print(f"  Output: {args.output}")
+    print(f"  Wires: {args.min_wires} - {args.max_wires}")
+    print(f"  Target taxonomies per width: {args.target_taxonomies}")
+    print(f"  Max variants per skeleton: {args.max_variants}")
+    print(f"  Solver: {args.solver}")
+    print(f"  Map size: {args.map_size / (1024**3):.1f} GB")
+
+    total_collision_taxonomies = count_collision_taxonomies()
+    print(f"\n  Total possible collision taxonomies: {total_collision_taxonomies}")
+
+    config = SkeletonDBConfig(
+        map_size=args.map_size,
+        min_wires=args.min_wires,
+        max_wires=args.max_wires,
+        target_taxonomies_per_width=args.target_taxonomies,
+        max_synthesis_attempts=args.max_attempts,
+    )
+
+    print("\n" + "=" * 70)
+    print("Building database...\n")
+
+    def progress(width, attempt, found):
+        print(f"  Width {width}: attempt {attempt:3d}, {found:3d} taxonomies", end="\r")
+
+    start_time = time.time()
+
+    with SkeletonDBBuilder(args.output, config) as builder:
+        stats = builder.build(
+            max_variants=args.max_variants,
+            solver_name=args.solver,
+            progress_callback=progress if not args.quiet else None,
+        )
+
+        final_stats = builder.get_stats()
+
+    elapsed = time.time() - start_time
+
+    print("\n\n" + "=" * 70)
+    print("BUILD COMPLETE")
+    print("=" * 70)
+
+    print(f"\nSummary:")
+    print(f"  Total circuits added: {stats['circuits_added']:,}")
+    print(f"  Total taxonomies found: {stats['taxonomies_found']:,}")
+    print(f"  Synthesis calls: {stats['synthesis_calls']:,}")
+    print(f"  Elapsed time: {elapsed:.1f}s")
+
+    print(f"\nPer-width breakdown:")
+    for width in sorted(final_stats.get("taxonomies_per_width", {}).keys()):
+        tax_count = final_stats["taxonomies_per_width"][width]
+        circ_count = final_stats["circuits_per_width"].get(width, 0)
+        print(f"  Width {width}: {tax_count} taxonomies, {circ_count:,} circuits")
+
+    print(f"\nDatabase saved to: {args.output}")
 
 
 def main():
@@ -404,9 +592,123 @@ def main():
     build_wit.add_argument("--db", required=True, help="LMDB database path")
     build_wit.add_argument("--max-width", type=int, required=True, help="Maximum width")
     build_wit.add_argument("--max-gc", type=int, required=True, help="Maximum gate count")
-    
+
+    # Skeleton-chain command (NEW)
+    skel_chain = subparsers.add_parser(
+        "skeleton-chain",
+        help="Synthesize skeleton chain with limited unrolling",
+    )
+    skel_chain.add_argument("width", type=int, help="Number of wires")
+    skel_chain.add_argument("gates", type=int, help="Number of gates")
+    skel_chain.add_argument("-s", "--solver", default="glucose4", help="SAT solver (default: glucose4)")
+    skel_chain.add_argument(
+        "--chain-length",
+        type=int,
+        help="Minimum collision chain length (default: all gates)",
+    )
+    skel_chain.add_argument(
+        "--allow-adjacent-identical",
+        action="store_true",
+        help="Allow adjacent identical gates",
+    )
+    skel_chain.add_argument(
+        "--unroll",
+        action="store_true",
+        help="Generate equivalent circuits via limited unrolling",
+    )
+    skel_chain.add_argument(
+        "--max-circuits",
+        type=int,
+        default=1000,
+        help="Maximum circuits to generate (default: 1000)",
+    )
+    skel_chain.add_argument(
+        "--max-permutations",
+        type=int,
+        default=None,
+        help="Maximum permutations to sample (default: auto)",
+    )
+    skel_chain.add_argument(
+        "--estimate",
+        action="store_true",
+        help="Show estimated equivalence class size",
+    )
+    skel_chain.add_argument(
+        "--show-circuit",
+        action="store_true",
+        help="Display the synthesized circuit",
+    )
+    skel_chain.add_argument(
+        "-o",
+        "--output",
+        help="Output file path (JSON)",
+    )
+    skel_chain.add_argument(
+        "--save-limit",
+        type=int,
+        default=100,
+        help="Maximum circuits to save to file (default: 100)",
+    )
+
+    # Build-skeleton-db command (NEW)
+    build_skel_db = subparsers.add_parser(
+        "build-skeleton-db",
+        help="Build skeleton chain database indexed by taxonomy",
+    )
+    build_skel_db.add_argument(
+        "-o", "--output",
+        required=True,
+        help="Output LMDB directory path",
+    )
+    build_skel_db.add_argument(
+        "--min-wires",
+        type=int,
+        default=4,
+        help="Minimum wire count (default: 4)",
+    )
+    build_skel_db.add_argument(
+        "--max-wires",
+        type=int,
+        default=12,
+        help="Maximum wire count (default: 12)",
+    )
+    build_skel_db.add_argument(
+        "--target-taxonomies",
+        type=int,
+        default=50,
+        help="Target distinct taxonomies per wire count (default: 50)",
+    )
+    build_skel_db.add_argument(
+        "--max-variants",
+        type=int,
+        default=100,
+        help="Maximum variants per skeleton (default: 100)",
+    )
+    build_skel_db.add_argument(
+        "--max-attempts",
+        type=int,
+        default=100,
+        help="Maximum synthesis attempts per width (default: 100)",
+    )
+    build_skel_db.add_argument(
+        "-s", "--solver",
+        default="glucose4",
+        help="SAT solver (default: glucose4)",
+    )
+    build_skel_db.add_argument(
+        "--map-size",
+        type=int,
+        default=50 * 1024 * 1024 * 1024,  # 50 GB
+        help="LMDB map size in bytes (default: 50GB)",
+    )
+    build_skel_db.add_argument(
+        "-q", "--quiet",
+        action="store_true",
+        help="Suppress progress output",
+    )
+
     args = parser.parse_args()
-    
+
     if args.command == "benchmark":
         cmd_benchmark(args)
     elif args.command == "synth":
@@ -423,6 +725,10 @@ def main():
         cmd_unroll(args)
     elif args.command == "build-witnesses":
         cmd_build_witnesses(args)
+    elif args.command == "skeleton-chain":
+        cmd_skeleton_chain(args)
+    elif args.command == "build-skeleton-db":
+        cmd_build_skeleton_db(args)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,8 @@
 # Experimental: Skeleton Graph Constraints
 
+## Background
+Check all existing templates and see if they have long non-commuting colliding chains.
+
 ## Goal
 Explore "HARD" identity templates by enforcing specific structural properties based on the **Skeleton Graph** concept. Limiting the search space to circuits with specific collision properties (e.g., long non-commuting chains) may reveal complex identities that are otherwise hard to find.
 

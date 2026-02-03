@@ -283,7 +283,7 @@ class ECA57Circuit:
         visited = set()
         results = []
         queue = deque([self])
-        
+
         while queue:
             curr = queue.popleft()
             key = tuple(g.to_tuple() for g in curr._gates)
@@ -295,31 +295,70 @@ class ECA57Circuit:
                     if nkey not in visited:
                         queue.append(neighbor)
         return results
-    
+
+    def swap_space_bfs_limited(
+        self,
+        max_depth: int = 10,
+        max_circuits: int = 1000,
+    ) -> List["ECA57Circuit"]:
+        """Find circuits reachable by gate swaps with bounded exploration.
+
+        Unlike swap_space_bfs(), this version limits exploration to prevent
+        memory explosion on large circuits.
+
+        Args:
+            max_depth: Maximum BFS depth (number of swap layers).
+            max_circuits: Maximum number of circuits to generate.
+
+        Returns:
+            List of reachable circuits (truncated if limits hit).
+        """
+        from collections import deque
+        visited = set()
+        results = []
+        queue = deque([(self, 0)])  # (circuit, depth)
+
+        while queue and len(results) < max_circuits:
+            curr, depth = queue.popleft()
+            key = tuple(g.to_tuple() for g in curr._gates)
+
+            if key not in visited:
+                visited.add(key)
+                results.append(curr)
+
+                # Only explore neighbors if we haven't hit depth limit
+                if depth < max_depth:
+                    for neighbor in curr.swaps():
+                        nkey = tuple(g.to_tuple() for g in neighbor._gates)
+                        if nkey not in visited:
+                            queue.append((neighbor, depth + 1))
+
+        return results
+
     def unroll(self) -> List["ECA57Circuit"]:
         """Generate all equivalent circuits via Algorithm 2.
-        
+
         Applies: DFS swaps, rotations, reversal, permutations.
-        
+
         Returns:
             List of all equivalent circuits.
         """
         # Step 1: Swap space (DFS/BFS)
         equivalents = self.swap_space_bfs()
-        
+
         # Step 2: Rotations
         new_equivs = []
         for c in equivalents:
             new_equivs.extend(c.rotations())
         equivalents = new_equivs
-        
+
         # Step 3: Mirror (reverse)
         new_equivs = []
         for c in equivalents:
             new_equivs.append(c)
             new_equivs.append(c.reverse())
         equivalents = new_equivs
-        
+
         # Step 4: Remove duplicates
         seen = set()
         unique = []
@@ -329,12 +368,12 @@ class ECA57Circuit:
                 seen.add(key)
                 unique.append(c)
         equivalents = unique
-        
+
         # Step 5: Wire permutations
         new_equivs = []
         for c in equivalents:
             new_equivs.extend(c.permutations())
-        
+
         # Final dedup
         seen = set()
         unique = []
@@ -343,9 +382,125 @@ class ECA57Circuit:
             if key not in seen:
                 seen.add(key)
                 unique.append(c)
-        
+
         return unique
-    
+
+    def limited_unroll(
+        self,
+        max_swap_depth: int = 10,
+        max_swap_circuits: int = 1000,
+        max_permutations: int | None = None,
+        max_total_circuits: int = 10000,
+        include_rotations: bool = True,
+        include_mirror: bool = True,
+    ) -> List["ECA57Circuit"]:
+        """Generate equivalent circuits with bounded exploration.
+
+        Unlike unroll(), this version prevents memory explosion by:
+        1. Limiting swap space exploration (depth + circuit count)
+        2. Sampling permutations instead of enumerating all w!
+        3. Enforcing a total circuit budget
+
+        Useful for large circuits (16+ wires, 32+ gates) where full unroll
+        would generate billions of circuits.
+
+        Args:
+            max_swap_depth: Maximum BFS depth for swap exploration.
+            max_swap_circuits: Maximum circuits from swap space.
+            max_permutations: If None, use all permutations; if int, sample that many.
+            max_total_circuits: Absolute maximum circuits to generate.
+            include_rotations: Whether to include rotations.
+            include_mirror: Whether to include mirror (reverse).
+
+        Returns:
+            List of equivalent circuits (bounded).
+        """
+        import random
+        from itertools import permutations as iterperms
+
+        # Step 1: Limited swap space
+        equivalents = self.swap_space_bfs_limited(max_swap_depth, max_swap_circuits)
+
+        # Step 2: Rotations
+        if include_rotations:
+            new_equivs = []
+            for c in equivalents:
+                new_equivs.extend(c.rotations())
+            equivalents = new_equivs
+
+            # Early dedup to control size
+            seen = set()
+            unique = []
+            for c in equivalents:
+                key = tuple(g.to_tuple() for g in c._gates)
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(c)
+            equivalents = unique
+
+        # Step 3: Mirror (reverse)
+        if include_mirror:
+            new_equivs = []
+            for c in equivalents:
+                new_equivs.append(c)
+                new_equivs.append(c.reverse())
+            equivalents = new_equivs
+
+            # Dedup
+            seen = set()
+            unique = []
+            for c in equivalents:
+                key = tuple(g.to_tuple() for g in c._gates)
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(c)
+            equivalents = unique
+
+        # Check if we've hit budget before permutations
+        if len(equivalents) >= max_total_circuits:
+            return equivalents[:max_total_circuits]
+
+        # Step 4: Wire permutations (sampled or full)
+        if max_permutations is None:
+            # Use all permutations (warning: w! can be huge)
+            new_equivs = []
+            for c in equivalents:
+                new_equivs.extend(c.permutations())
+                # Early termination if hitting budget
+                if len(new_equivs) >= max_total_circuits:
+                    break
+        else:
+            # Sample random permutations
+            all_perms = list(iterperms(range(self._width)))
+            if len(all_perms) <= max_permutations:
+                # If total perms <= sample size, use all
+                sampled_perms = all_perms
+            else:
+                # Sample without replacement
+                sampled_perms = random.sample(all_perms, max_permutations)
+
+            new_equivs = []
+            for c in equivalents:
+                for perm in sampled_perms:
+                    new_equivs.append(c.permute(list(perm)))
+                    if len(new_equivs) >= max_total_circuits:
+                        break
+                if len(new_equivs) >= max_total_circuits:
+                    break
+
+        # Final dedup and enforce total budget
+        seen = set()
+        unique = []
+        for c in new_equivs:
+            if len(unique) >= max_total_circuits:
+                break
+            key = tuple(g.to_tuple() for g in c._gates)
+            if key not in seen:
+                seen.add(key)
+                unique.append(c)
+
+        return unique
+
     def canonical(self) -> "ECA57Circuit":
         """Return the canonical (lexicographically smallest) equivalent circuit.
         
@@ -368,15 +523,95 @@ class ECA57Circuit:
     
     def canonical_key(self) -> Tuple[Tuple[int, int, int], ...]:
         """Return the canonical key (gate tuple sequence) for this circuit.
-        
+
         This is the lexicographically smallest representation among all equivalents.
         Useful for deduplication and comparison.
-        
+
         Returns:
             Tuple of (target, ctrl1, ctrl2) tuples for canonical form.
         """
         return tuple(g.to_tuple() for g in self.canonical()._gates)
-    
+
+    def canonical_skeleton(self) -> "ECA57Circuit":
+        """Canonical form optimized for skeleton chains (no swap exploration).
+
+        For circuits where no adjacent gates commute (skeleton chains),
+        the swap space is trivial - only the circuit itself exists.
+        This method provides a fast path by skipping swap-space BFS.
+
+        Skeleton chains have all adjacent gates colliding (non-commuting) due to
+        collision constraints. This means gate_swappable(i) returns False for all i,
+        and swap_space_bfs() would return only [self].
+
+        Equivalence under: rotations × mirror × wire permutations only.
+
+        Note: For true skeleton chains (all adjacent gates collide), this
+        produces the same result as canonical() but ~100x faster.
+
+        Returns:
+            Lexicographically smallest equivalent circuit (no swaps).
+        """
+        # Don't explore swap space - skeleton chains have no valid swaps
+        candidates = []
+
+        # Apply rotations and mirror
+        for r in range(len(self)):
+            rotated = self.rotate(r)
+            candidates.append(rotated)
+            candidates.append(rotated.reverse())
+
+        # Apply wire permutations
+        final_candidates = []
+        for circuit in candidates:
+            final_candidates.extend(circuit.permutations())
+
+        # Deduplicate
+        seen = set()
+        unique = []
+        for c in final_candidates:
+            key = tuple(g.to_tuple() for g in c._gates)
+            if key not in seen:
+                seen.add(key)
+                unique.append(c)
+
+        # Return lexicographically smallest
+        keyed = [(tuple(g.to_tuple() for g in c._gates), c) for c in unique]
+        keyed.sort(key=lambda x: x[0])
+
+        return keyed[0][1]
+
+    def canonical_skeleton_key(self) -> Tuple[Tuple[int, int, int], ...]:
+        """Fast canonical key for skeleton chains (no swap exploration).
+
+        For skeleton chains where adjacent gates don't commute, this provides
+        a fast path for obtaining the canonical key without exploring the
+        (trivial) swap space.
+
+        Returns:
+            Tuple of (target, ctrl1, ctrl2) tuples for canonical skeleton form.
+        """
+        return tuple(g.to_tuple() for g in self.canonical_skeleton()._gates)
+
+    def are_equivalent_skeleton(self, other: "ECA57Circuit") -> bool:
+        """Check if two skeleton chains are equivalent (rotation/mirror/perm only).
+
+        For skeleton chains where adjacent gates collide, two circuits are
+        equivalent iff they produce the same canonical_skeleton_key().
+
+        This is much faster than full equivalence checking because it skips
+        swap-space exploration (which is empty for skeleton chains anyway).
+
+        Args:
+            other: Circuit to compare against.
+
+        Returns:
+            True if circuits are equivalent under rotation/mirror/permutation.
+        """
+        if self._width != other._width or len(self) != len(other):
+            return False
+
+        return self.canonical_skeleton_key() == other.canonical_skeleton_key()
+
     def slice(self, start: int, end: int) -> "ECA57Circuit":
         """Extract subsequence of gates [start:end].
         

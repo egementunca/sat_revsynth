@@ -22,14 +22,14 @@ from circuit.eca57_collection import ECA57Collection
 
 class ECA57PartialSynthesizer:
     """Single-shot synthesizer for one batch of equivalent circuits.
-    
+
     Creates a new ECA57Synthesizer instance, applies exclusions for
     previously found circuits, and finds the next identity circuit.
     """
-    
+
     def __init__(self, width: int, gate_count: int, solver_name: Union[str, List[str]] = "glucose4"):
         """Initialize synthesizer for given dimensions.
-        
+
         Args:
             width: Number of wires.
             gate_count: Number of gates.
@@ -38,48 +38,57 @@ class ECA57PartialSynthesizer:
         self._width = width
         self._gate_count = gate_count
         self._solver_name = solver_name
-        
+        self._excluded_keys: set = set()  # Track excluded circuits by their gate tuple keys
+
         # Identity truth table
         tt = TruthTable(width)
-        
+
         # Instantiate solver or racer
         if isinstance(solver_name, list):
             solver_instance = SolverRacer(solver_name)
         else:
             solver_instance = Solver(solver_name)
-        
+
         self._synthesizer = ECA57Synthesizer(
-            tt, 
-            gate_count, 
+            tt,
+            gate_count,
             solver=solver_instance,
             disable_empty_lines=True
         )
-    
+
     def synthesize(self) -> ECA57DimGroup:
         """Find one circuit and unroll to equivalence class.
-        
+
         Returns:
             DimGroup containing all equivalent circuits, or empty if UNSAT.
         """
         circuit = self._synthesizer.solve()
         dg = ECA57DimGroup(self._width, self._gate_count)
-        
+
         if circuit is not None:
             # Unroll to get all equivalents
             equivalents = circuit.unroll()
-            dg.extend(equivalents)
-        
+            # Filter out excluded circuits
+            for eq in equivalents:
+                key = tuple(g.to_tuple() for g in eq.gates())
+                if key not in self._excluded_keys:
+                    dg.append(eq)
+
         return dg
-    
+
     def exclude_subcircuit(self, circuit: ECA57Circuit) -> "ECA57PartialSynthesizer":
         """Exclude a circuit from future solutions.
-        
+
         Args:
             circuit: Circuit to exclude.
-            
+
         Returns:
             Self for chaining.
         """
+        # Track excluded circuit for filtering unroll results
+        key = tuple(g.to_tuple() for g in circuit.gates())
+        self._excluded_keys.add(key)
+        # Also exclude from SAT solver
         self._synthesizer.exclude_subcircuit(circuit)
         return self
 

@@ -208,61 +208,47 @@ class ECA57Synthesizer:
     
     def exclude_solution(self, circuit: ECA57Circuit) -> "ECA57Synthesizer":
         """Exclude a solution to find alternative circuits.
-        
+
         Args:
             circuit: Circuit to exclude.
-            
+
         Returns:
             Self for chaining.
         """
         # Build exclusion clause for this exact circuit
+        # Only include positive literals for the actual configuration.
+        # The one-hot constraints already ensure other wires are false.
         exclusion_list = []
-        
+
         for g, gate in enumerate(circuit.gates()):
-            for w in range(self._width):
-                t_lit = self._targets[g][w].value()
-                t_lit = t_lit if w == gate.target else -t_lit
-                exclusion_list.append(t_lit)
-                
-                c1_lit = self._ctrl1s[g][w].value()
-                c1_lit = c1_lit if w == gate.ctrl1 else -c1_lit
-                exclusion_list.append(c1_lit)
-                
-                c2_lit = self._ctrl2s[g][w].value()
-                c2_lit = c2_lit if w == gate.ctrl2 else -c2_lit
-                exclusion_list.append(c2_lit)
-        
+            exclusion_list.append(self._targets[g][gate.target].value())
+            exclusion_list.append(self._ctrl1s[g][gate.ctrl1].value())
+            exclusion_list.append(self._ctrl2s[g][gate.ctrl2].value())
+
         self._cnf.exclude_by_values(exclusion_list)
         self._circuit = None  # Reset cached solution
         return self
     
     def _build_exclusion_at_offset(self, circuit: ECA57Circuit, offset: int) -> list:
         """Build exclusion list for circuit starting at gate offset.
-        
+
         Args:
             circuit: Circuit to exclude.
             offset: Starting gate position in the synthesizer's circuit.
-            
+
         Returns:
             List of literal values for exclusion clause.
         """
+        # Only include positive literals for the actual configuration.
+        # The one-hot constraints already ensure other wires are false.
         exclusion_list = []
-        
+
         for g, gate in enumerate(circuit.gates()):
             synth_gate_idx = g + offset
-            for w in range(self._width):
-                t_lit = self._targets[synth_gate_idx][w].value()
-                t_lit = t_lit if w == gate.target else -t_lit
-                exclusion_list.append(t_lit)
-                
-                c1_lit = self._ctrl1s[synth_gate_idx][w].value()
-                c1_lit = c1_lit if w == gate.ctrl1 else -c1_lit
-                exclusion_list.append(c1_lit)
-                
-                c2_lit = self._ctrl2s[synth_gate_idx][w].value()
-                c2_lit = c2_lit if w == gate.ctrl2 else -c2_lit
-                exclusion_list.append(c2_lit)
-        
+            exclusion_list.append(self._targets[synth_gate_idx][gate.target].value())
+            exclusion_list.append(self._ctrl1s[synth_gate_idx][gate.ctrl1].value())
+            exclusion_list.append(self._ctrl2s[synth_gate_idx][gate.ctrl2].value())
+
         return exclusion_list
     
     def exclude_subcircuit(self, circuit: ECA57Circuit) -> "ECA57Synthesizer":

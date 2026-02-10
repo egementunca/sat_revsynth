@@ -12,6 +12,9 @@ Usage:
     # Random permutation
     python scripts/synth_waksman.py --width 8 --random
 
+    # Beneš fixed-topology (experimental)
+    python scripts/synth_waksman.py --width 8 --random --benes
+
     # Multiple random permutations
     python scripts/synth_waksman.py --width 16 --sample 100 --output circuits.json
 
@@ -40,6 +43,8 @@ from synthesizers.waksman import (
     SimpleSwapNetwork,
     synthesize_waksman,
     synthesize_permutation,
+    synthesize_benes,
+    ECA57SwapLibrary,
 )
 from gates.eca57 import ECA57Circuit
 
@@ -180,6 +185,27 @@ def main():
         help="Use simple swap network (works for any n >= 2)",
     )
     parser.add_argument(
+        "--benes",
+        action="store_true",
+        help="Use Beneš fixed-topology routing (experimental)",
+    )
+    parser.add_argument(
+        "--random-routing",
+        action="store_true",
+        help="Enable randomized routing for fixed-topology network (power-of-two only)",
+    )
+    parser.add_argument(
+        "--swap-library",
+        type=str,
+        help="Path to JSON swap gadget library (optional)",
+    )
+    parser.add_argument(
+        "--swap-gates",
+        type=int,
+        default=None,
+        help="Target gate count when sampling swap gadgets from the library",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -228,6 +254,11 @@ def main():
         # Default: identity permutation
         perms_to_synthesize.append(list(range(args.width)))
 
+    # Swap library (optional)
+    swap_library = None
+    if args.swap_library:
+        swap_library = ECA57SwapLibrary.load_json(args.swap_library)
+
     # Synthesize circuits
     results = []
     total_time = 0
@@ -245,9 +276,28 @@ def main():
         # Synthesize
         start = time.time()
         if args.simple:
-            circuit = synthesize_permutation(args.width, perm)
+            circuit = synthesize_permutation(
+                args.width, perm,
+                swap_library=swap_library,
+                swap_gate_count=args.swap_gates,
+                rng_seed=args.seed
+            )
+        elif args.benes:
+            circuit = synthesize_benes(
+                args.width, perm,
+                randomize_routing=args.random_routing,
+                swap_library=swap_library,
+                swap_gate_count=args.swap_gates,
+                rng_seed=args.seed
+            )
         else:
-            circuit = synthesize_waksman(args.width, perm)
+            circuit = synthesize_waksman(
+                args.width, perm,
+                randomize_routing=args.random_routing,
+                swap_library=swap_library,
+                swap_gate_count=args.swap_gates,
+                rng_seed=args.seed
+            )
         elapsed = time.time() - start
         total_time += elapsed
 
@@ -257,10 +307,16 @@ def main():
             verified = verify_circuit(circuit, perm, args.width)
 
         # Build result
+        if args.simple:
+            algo = "simple"
+        elif args.benes:
+            algo = "benes"
+        else:
+            algo = "waksman"
         metadata = {
             "synthesis_time_ms": round(elapsed * 1000, 2),
             "verified": verified,
-            "algorithm": "simple" if args.simple else "waksman",
+            "algorithm": algo,
         }
         result = circuit_to_dict(circuit, perm, metadata)
         results.append(result)

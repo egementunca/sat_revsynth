@@ -2,9 +2,11 @@
 
 ## Overview
 
-This document describes the current Waksman-style wire permutation synthesis in this repo.
-The implementation is swap-based for correctness and scalability. A true Waksman routing
-algorithm (fixed topology with recursive routing) is still a future upgrade.
+This document describes wire permutation synthesis in this repo.
+There are two paths:
+- **SimpleSwapNetwork** (current default): swap-based and correct for any width.
+- **Beneš (fixed-topology)**: implemented but still experimental for large widths.
+Minimal Waksman routing remains a future upgrade.
 
 ## What It Does
 
@@ -15,13 +17,13 @@ algorithm (fixed topology with recursive routing) is still a future upgrade.
 ## Current Implementation
 
 - `SimpleSwapNetwork` computes a swap sequence (selection-sort style).
-- Each swap compiles to the 6-gate ECA57 macro.
-- `WaksmanNetwork` is a wrapper that currently delegates to `SimpleSwapNetwork`.
+- Each swap compiles to the 6-gate ECA57 macro (or an optional swap gadget library).
+- `BenesNetwork` exists for fixed topology (use `--benes` in the CLI).
 - Obfuscation uses `identity_filler.py` to insert random identity circuits.
 
 ## Key Files
 
-- `sat_revsynth/src/synthesizers/waksman.py`
+- `sat_revsynth/src/synthesizers/waksman.py` (includes `BenesNetwork`)
 - `sat_revsynth/src/synthesizers/identity_filler.py`
 - `sat_revsynth/scripts/synth_waksman.py`
 - `sat_revsynth/src/synthesizers/waksman_test.py`
@@ -40,6 +42,12 @@ Random permutation:
 
 ```bash
 python3 sat_revsynth/scripts/synth_waksman.py --width 16 --random
+```
+
+Beneš (experimental):
+
+```bash
+python3 sat_revsynth/scripts/synth_waksman.py --width 16 --random --benes
 ```
 
 Batch random permutations:
@@ -78,8 +86,25 @@ Run unit tests:
 python3 -m pytest sat_revsynth/src/synthesizers/waksman_test.py -q
 ```
 
+## Swap Gadget Enumeration
+
+You can SAT-enumerate swap gadgets (3-wire circuits that swap wire 0/1 and preserve wire 2):
+
+```bash
+python3 sat_revsynth/scripts/enumerate_swap_gadgets.py \
+  --min-gates 6 --max-gates 20 --output sat_revsynth/data/swap_library.json
+```
+
+Then use the library during synthesis:
+
+```bash
+python3 sat_revsynth/scripts/synth_waksman.py --width 16 --random \
+  --swap-library sat_revsynth/data/swap_library.json
+```
+
 ## Future Work
 
-- Implement true Waksman/Beneš routing (fixed topology).
+- Stabilize Beneš routing for larger widths.
+- Implement **minimal Waksman** routing (fewer switches).
 - Expose routing variants for structural diversity.
 - Add performance/size benchmarks across widths.

@@ -76,6 +76,55 @@ Generates variants (reverse, permutations, rotations, swap DFS) to populate the 
 python src/eca57_cli.py unroll --db data/templates.lmdb --seed-dims 4x5
 ```
 
+## Wire Shuffle + Bit-Flip (B_{w,s})
+
+`sat_revsynth` includes a shuffle + bit-flip generator that implements:
+
+```
+beta_{w,s}(x_1..x_n) = (x_{w(1)} xor s_1, ..., x_{w(n)} xor s_n)
+```
+
+Key files:
+- Generator: `sat_revsynth/src/synthesizers/shuffle_bitflip.py`
+- Swap-with-flip gadgets: `sat_revsynth/scripts/enumerate_swap_flip_gadgets.py`
+- Tests: `sat_revsynth/src/synthesizers/test_shuffle_bitflip.py`
+
+### 1. Generate a swap-with-flip gadget library (Style B)
+
+```bash
+python sat_revsynth/scripts/enumerate_swap_flip_gadgets.py \
+  --min-gates 6 --max-gates 12 \
+  --max-solutions 15 --verify -v \
+  -o share/swap_flip_gadgets.json
+```
+
+### 2. Use the generator (Style A or Style B)
+
+```python
+from synthesizers.shuffle_bitflip import FlipMode, ShuffleBitflipConfig, ShuffleBitflipGenerator
+from synthesizers.waksman import ECA57SwapFlipLibrary
+
+# Load gadget library for Style B
+swap_flip_lib = ECA57SwapFlipLibrary.from_json("share/swap_flip_gadgets.json")
+
+config = ShuffleBitflipConfig(
+    flip_mode=FlipMode.EMBEDDED,
+    swap_flip_library=swap_flip_lib,
+    rng_seed=42,
+)
+
+gen = ShuffleBitflipGenerator(width=8, config=config)
+circuit, perm, flip_mask = gen.generate_random(flip_probability=0.5)
+
+print(perm, flip_mask)
+print(circuit.gates)
+```
+
+Notes:
+- `FlipMode.SEPARATE` implements Style A (shuffle then explicit flips).
+- `FlipMode.EMBEDDED` implements Style B (swap-with-flip gadgets).
+- `FlipMode.NONE` generates shuffle-only circuits.
+
 ## Cluster Execution
 
 For large-scale enumeration (e.g., width=4, gates=8), we use a cluster environment.

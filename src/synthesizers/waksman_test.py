@@ -16,6 +16,7 @@ from gates.eca57 import ECA57Circuit
 from synthesizers.waksman import (
     ECA57SwapMacro,
     SimpleSwapNetwork,
+    BenesNetwork,
     WaksmanNetwork,
     synthesize_waksman,
     synthesize_permutation,
@@ -201,6 +202,37 @@ class TestWaksmanNetwork:
             WaksmanNetwork(3)
         with pytest.raises(AssertionError):
             WaksmanNetwork(5)
+
+
+class TestBenesNetwork:
+    """Tests for the Beneš fixed-topology network."""
+
+    def _verify_permutation(self, circuit: ECA57Circuit, perm: list, n: int) -> bool:
+        width = circuit.width()
+        for i in range(2**n):
+            input_state = [(i >> b) & 1 for b in range(width)]
+            output_state = circuit.apply(input_state)
+            for k in range(n):
+                if output_state[k] != input_state[perm[k]]:
+                    return False
+        return True
+
+    def test_all_perms_n4(self):
+        for perm in permutations(range(4)):
+            perm = list(perm)
+            network = BenesNetwork(4)
+            network.route(perm)
+            circuit = network.to_eca57_circuit()
+            assert self._verify_permutation(circuit, perm, 4)
+
+    def test_randomized_routing_n8(self):
+        pytest.xfail("Benes routing is experimental for n>=8")
+        perm = list(range(8))
+        random.shuffle(perm)
+        network = BenesNetwork(8, randomize=True, rng_seed=123)
+        network.route(perm)
+        circuit = network.to_eca57_circuit()
+        assert self._verify_permutation(circuit, perm, 8)
 
 
 class TestSynthesizeWaksman:
